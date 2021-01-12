@@ -13,7 +13,6 @@ impl GameBoy {
         let bootrom_path = Path::new("dmg_boot.bin");
         let bootrom = fs::read(bootrom_path)
             .with_context(|| format!("Couldn't read file `{}`", bootrom_path.to_str().unwrap()))?;
-        // let bootrom: Vec<u8> = [0x00].to_vec();
         let gb = GameBoy {
             cpu: CPU::new(bootrom),
         };

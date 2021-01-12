@@ -7,7 +7,7 @@ use crate::instruction::*;
 pub struct CPU {
     pc: u16,
     sp: u16,
-    prefix: bool,
+    cycles: u64,
     registers: Registers,
     bus: MemoryBus,
 }
@@ -17,7 +17,7 @@ impl CPU {
         let mut cpu = CPU {
             pc: 0,
             sp: 0,
-            prefix: false,
+            cycles: 0,
             registers: Registers {
                 a: 0,
                 b: 0,
@@ -40,24 +40,34 @@ impl CPU {
     fn state(&self) -> String {
         let r = &self.registers;
         format!(
-            "{:x} {:x} [{} {} {} {} {} {} {}]",
-            self.pc, self.sp, r.a, r.b, r.c, r.d, r.e, r.h, r.l
+            "{:04x} {: >2} {:04x} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
+            self.pc, self.cycles, self.sp, r.a, r.b, r.c, r.d, r.e, r.h, r.l
         )
     }
 
-    pub fn step(&mut self) -> Result<u64> {
+    pub fn step(&mut self) -> Result<()> {
         let byte = self.bus.read_byte(self.pc);
-        let instr = Instruction::from_byte(byte, self.prefix)?;
-        if self.prefix {
-            self.prefix = false;
-        }
-        let (next_pc, cycles) = self.execute(&instr)?;
-        println!("{:x} {:?} {}", byte, instr, self.state());
-        self.pc = next_pc;
-        Ok(cycles)
+        let (byte, prefix) = if byte == 0xcb {
+            (self.bus.read_byte(self.pc + 1), true)
+        } else {
+            (byte, false)
+        };
+        let instr = Instruction::from_byte(byte, prefix)?;
+        let bytes = self
+            .bus
+            .read_bytes(self.pc, instr.len)
+            .iter()
+            .map(|b| format!("{:x}", b))
+            .collect::<Vec<String>>()
+            .join(" ");
+        println!("{} {: >8} -> {}", self.state(), bytes, instr);
+        self.execute(&instr)?;
+        self.pc += instr.len;
+        self.cycles += instr.cycles;
+        Ok(())
     }
 
-    fn execute(&mut self, instr: &Instruction) -> Result<(u16, u64)> {
+    fn execute(&mut self, instr: &Instruction) -> Result<()> {
         match instr.op {
             OP::NOP => (),
             OP::LD(LDType::WordImm(word)) => self.set_word(word, self.bus.read_word(self.pc + 1)),
@@ -65,10 +75,9 @@ impl CPU {
             OP::XOR(ArithType::Register(reg)) => {
                 self.set_reg(Reg::A, self.read_reg(Reg::A) ^ self.read_reg(reg))
             }
-            OP::CB => self.prefix = true,
             _ => bail!("Unimplemented Instruction: {:?}", instr.op),
         };
-        Ok((self.pc + instr.len, instr.cycles))
+        Ok(())
     }
 
     fn read_reg(&self, reg: Reg) -> u8 {
@@ -187,6 +196,10 @@ impl MemoryBus {
 
     fn set_byte(&mut self, addr: u16, val: u8) {
         self.memory[addr as usize] = val
+    }
+
+    fn read_bytes(&self, addr: u16, len: u16) -> &[u8] {
+        &self.memory[addr as usize..addr as usize + len as usize]
     }
 
     fn read_word(&self, addr: u16) -> u16 {

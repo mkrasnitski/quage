@@ -1,14 +1,6 @@
 #![allow(dead_code)]
 use anyhow::{bail, Result};
-
-#[derive(Debug)]
-pub enum OP {
-    NOP,
-    LD(LDType),
-    XOR(ArithType),
-    CB,
-    BIT(BitPosition, PrefixTarget),
-}
+use std::fmt;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Reg {
@@ -83,6 +75,14 @@ pub enum PrefixTarget {
     HLInd,
 }
 
+#[derive(Debug)]
+pub enum OP {
+    NOP,
+    LD(LDType),
+    XOR(ArithType),
+    BIT(BitPosition, PrefixTarget),
+}
+
 impl OP {
     pub fn from_byte(byte: u8) -> Result<Self> {
         let op = match byte {
@@ -91,7 +91,6 @@ impl OP {
             0x31 => OP::LD(LDType::WordImm(Word::SP)),
             0x32 => OP::LD(LDType::IndFromA(Indirect::HLIndMinus)),
             0xaf => OP::XOR(ArithType::Register(Reg::A)),
-            0xcb => OP::CB,
             _ => bail!("Invalid opcode: {:#x}", byte),
         };
         Ok(op)
@@ -106,11 +105,16 @@ impl OP {
     }
 }
 
-#[derive(Debug)]
 pub struct Instruction {
     pub op: OP,
     pub len: u16,
     pub cycles: u64,
+}
+
+impl fmt::Display for Instruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?} [{}, {}]", self.op, self.len, self.cycles)
+    }
 }
 
 impl Instruction {
@@ -153,7 +157,7 @@ impl Instruction {
 
     fn get_len_cycles(op: &OP) -> (u16, u64) {
         match op {
-            OP::NOP | OP::CB => (1, 4),
+            OP::NOP => (1, 4),
             OP::BIT(_, _) => (2, 8),
             OP::LD(ld_type) => Instruction::get_ld_len_cycles(ld_type),
             OP::XOR(arith_type) => Instruction::get_arith_len_cycles(arith_type),
