@@ -30,6 +30,18 @@ pub enum Indirect {
     HLIndMinus, // (HL-)
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum BitPosition {
+    Zero,
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+    Seven,
+}
+
 #[derive(Debug)]
 pub enum LDType {
     // 92 total LD instrs
@@ -50,29 +62,47 @@ pub enum LDType {
     AddrFromSP,         //  (1) LD (u16), SP
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ArithType {
     Register(Reg),
     HLIndirect,
     Imm8,
 }
 
-#[derive(Debug)]
-pub enum BitPosition {
+#[derive(Debug, Copy, Clone)]
+pub enum JPType {
     Zero,
-    One,
-    Two,
-    Three,
-    Four,
-    Five,
-    Six,
-    Seven,
+    NotZero,
+    Carry,
+    NotCarry,
+    Always,
 }
 
 #[derive(Debug)]
-pub enum PrefixTarget {
+pub enum IncDecTarget {
     Register(Reg),
-    HLInd,
+    Word(Word),
+    HLIndirect,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum BaseTarget {
+    Register(Reg),
+    HLIndirect,
+}
+
+pub struct FlagState {
+    pub z: Option<bool>,
+    pub n: Option<bool>,
+    pub h: Option<bool>,
+    pub c: Option<bool>,
+}
+
+pub enum Flag {
+    Z,
+    N,
+    H,
+    C,
 }
 
 #[derive(Debug)]
@@ -80,26 +110,34 @@ pub enum OP {
     NOP,
     LD(LDType),
     XOR(ArithType),
-    BIT(BitPosition, PrefixTarget),
+    BIT(BitPosition, BaseTarget),
+    JR(JPType),
+    INC(IncDecTarget),
+    DEC(IncDecTarget),
 }
 
 impl OP {
     pub fn from_byte(byte: u8) -> Result<Self> {
         let op = match byte {
             0x00 => OP::NOP,
+            0x0c => OP::INC(IncDecTarget::Register(Reg::C)),
+            0x0e => OP::LD(LDType::ByteImm(Reg::C)),
+            0x20 => OP::JR(JPType::NotZero),
             0x21 => OP::LD(LDType::WordImm(Word::HL)),
             0x31 => OP::LD(LDType::WordImm(Word::SP)),
+            0x3e => OP::LD(LDType::ByteImm(Reg::A)),
             0x32 => OP::LD(LDType::IndFromA(Indirect::HLIndMinus)),
+            0xe2 => OP::LD(LDType::IndFromA(Indirect::CInd)),
             0xaf => OP::XOR(ArithType::Register(Reg::A)),
-            _ => bail!("Invalid opcode: {:#x}", byte),
+            _ => bail!("Invalid opcode: {:02x}", byte),
         };
         Ok(op)
     }
 
     pub fn from_prefix_byte(byte: u8) -> Result<Self> {
         let op = match byte {
-            0x7c => OP::BIT(BitPosition::Seven, PrefixTarget::Register(Reg::H)),
-            _ => bail!("Invalid opcode: {:#x}", byte),
+            0x7c => OP::BIT(BitPosition::Seven, BaseTarget::Register(Reg::H)),
+            _ => bail!("Invalid opcode: {:02x}", byte),
         };
         Ok(op)
     }
@@ -155,12 +193,23 @@ impl Instruction {
         }
     }
 
+    fn get_inc_dec_len_cycles(inc_dec_type: &IncDecTarget) -> (u16, u64) {
+        match inc_dec_type {
+            IncDecTarget::Register(_) => (1, 4),
+            IncDecTarget::Word(_) => (1, 8),
+            IncDecTarget::HLIndirect => (1, 12),
+        }
+    }
+
     fn get_len_cycles(op: &OP) -> (u16, u64) {
         match op {
             OP::NOP => (1, 4),
-            OP::BIT(_, _) => (2, 8),
+            OP::BIT(_, BaseTarget::Register(_)) | OP::JR(_) => (2, 8),
+            OP::BIT(_, BaseTarget::HLIndirect) => (2, 12),
             OP::LD(ld_type) => Instruction::get_ld_len_cycles(ld_type),
             OP::XOR(arith_type) => Instruction::get_arith_len_cycles(arith_type),
+            OP::INC(inc_dec_type) => Instruction::get_inc_dec_len_cycles(inc_dec_type),
+            OP::DEC(inc_dec_type) => Instruction::get_inc_dec_len_cycles(inc_dec_type),
         }
     }
 }
