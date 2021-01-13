@@ -1,4 +1,5 @@
 mod cpu;
+mod flags;
 mod gb;
 mod gpu;
 mod instruction;

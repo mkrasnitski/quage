@@ -91,42 +91,41 @@ pub enum BaseTarget {
     HLIndirect,
 }
 
-pub struct FlagState {
-    pub z: Option<bool>,
-    pub n: Option<bool>,
-    pub h: Option<bool>,
-    pub c: Option<bool>,
-}
-
-pub enum Flag {
-    Z,
-    N,
-    H,
-    C,
-}
-
 #[derive(Debug)]
 pub enum OP {
-    NOP,
     LD(LDType),
+
+    AND(ArithType),
+    OR(ArithType),
     XOR(ArithType),
+
+    INC(BaseTarget),
+    INCWord(Word),
+    DEC(BaseTarget),
+    DECWord(Word),
+
     BIT(BitPosition, BaseTarget),
+
     JR(JPType),
-    INC(IncDecTarget),
-    DEC(IncDecTarget),
+
+    NOP,
 }
 
 impl OP {
     pub fn from_byte(byte: u8) -> Result<Self> {
         let op = match byte {
             0x00 => OP::NOP,
-            0x0c => OP::INC(IncDecTarget::Register(Reg::C)),
+            0x0c => OP::INC(BaseTarget::Register(Reg::C)),
             0x0e => OP::LD(LDType::ByteImm(Reg::C)),
+            0x11 => OP::LD(LDType::WordImm(Word::DE)),
+            0x1a => OP::LD(LDType::AFromInd(Indirect::DEInd)),
             0x20 => OP::JR(JPType::NotZero),
             0x21 => OP::LD(LDType::WordImm(Word::HL)),
             0x31 => OP::LD(LDType::WordImm(Word::SP)),
             0x3e => OP::LD(LDType::ByteImm(Reg::A)),
             0x32 => OP::LD(LDType::IndFromA(Indirect::HLIndMinus)),
+            0x77 => OP::LD(LDType::ToHLInd(Reg::A)),
+            0xe0 => OP::LD(LDType::ByteIndFromA),
             0xe2 => OP::LD(LDType::IndFromA(Indirect::CInd)),
             0xaf => OP::XOR(ArithType::Register(Reg::A)),
             _ => bail!("Invalid opcode: {:02x}", byte),
@@ -193,11 +192,10 @@ impl Instruction {
         }
     }
 
-    fn get_inc_dec_len_cycles(inc_dec_type: &IncDecTarget) -> (u16, u64) {
-        match inc_dec_type {
-            IncDecTarget::Register(_) => (1, 4),
-            IncDecTarget::Word(_) => (1, 8),
-            IncDecTarget::HLIndirect => (1, 12),
+    fn get_base_len_cycles(base_type: &BaseTarget) -> (u16, u64) {
+        match base_type {
+            BaseTarget::Register(_) => (1, 4),
+            BaseTarget::HLIndirect => (1, 12),
         }
     }
 
@@ -207,9 +205,11 @@ impl Instruction {
             OP::BIT(_, BaseTarget::Register(_)) | OP::JR(_) => (2, 8),
             OP::BIT(_, BaseTarget::HLIndirect) => (2, 12),
             OP::LD(ld_type) => Instruction::get_ld_len_cycles(ld_type),
-            OP::XOR(arith_type) => Instruction::get_arith_len_cycles(arith_type),
-            OP::INC(inc_dec_type) => Instruction::get_inc_dec_len_cycles(inc_dec_type),
-            OP::DEC(inc_dec_type) => Instruction::get_inc_dec_len_cycles(inc_dec_type),
+            OP::XOR(arith_type) | OP::AND(arith_type) | OP::OR(arith_type) => {
+                Instruction::get_arith_len_cycles(arith_type)
+            }
+            OP::INC(base_type) | OP::DEC(base_type) => Instruction::get_base_len_cycles(base_type),
+            OP::INCWord(_) | OP::DECWord(_) => (1, 12),
         }
     }
 }

@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use anyhow::{bail, Result};
 
+use crate::flags::*;
 use crate::gpu::*;
 use crate::instruction::*;
 
@@ -28,7 +29,12 @@ impl CPU {
                 c: 0,
                 d: 0,
                 e: 0,
-                f: 0,
+                f: Flags {
+                    z: false,
+                    n: false,
+                    h: false,
+                    c: false,
+                },
                 h: 0,
                 l: 0,
             },
@@ -48,7 +54,7 @@ impl CPU {
             self.pc,
             self.cycles,
             self.sp,
-            r.f >> 4,
+            u8::from(r.f) >> 4,
             r.a,
             r.b,
             r.c,
@@ -84,29 +90,63 @@ impl CPU {
     fn execute(&mut self, instr: &mut Instruction) -> Result<u16> {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
-            OP::NOP => (),
             OP::LD(LDType::ByteImm(reg)) => self.write_reg(reg, self.next_byte()),
             OP::LD(LDType::WordImm(word)) => self.write_word(word, self.next_word()),
             OP::LD(LDType::IndFromA(ind)) => self.write_ind(ind, self.read_reg(Reg::A)),
-            OP::XOR(arith_type) => match arith_type {
-                ArithType::Register(reg) => self.xor(self.read_reg(reg)),
-                ArithType::HLIndirect => self.xor(self.read_hl_ind()),
-                ArithType::Imm8 => self.xor(self.next_byte()),
-            },
+            OP::LD(LDType::AFromInd(ind)) => {
+                let res = self.read_ind(ind);
+                self.write_reg(Reg::A, res);
+            }
+            OP::LD(LDType::ToHLInd(reg)) => self.write_hl_ind(self.read_reg(reg)),
+            OP::LD(LDType::ByteIndFromA) => {
+                self.write_mem_addr(0xFF00 + self.next_byte() as u16, self.read_reg(Reg::A));
+            }
+
+            OP::AND(arith_type) => {
+                let val = self.registers.a & self.read_arith_type(arith_type);
+                self.registers.f.z = val == 0;
+                self.registers.f.n = false;
+                self.registers.f.h = true;
+                self.registers.f.c = false;
+                self.write_reg(Reg::A, val);
+            }
+            OP::OR(arith_type) => {
+                let val = self.registers.a | self.read_arith_type(arith_type);
+                self.registers.f.z = val == 0;
+                self.registers.f.n = false;
+                self.registers.f.h = false;
+                self.registers.f.c = false;
+                self.write_reg(Reg::A, val);
+            }
+            OP::XOR(arith_type) => {
+                let val = self.registers.a ^ self.read_arith_type(arith_type);
+                self.registers.f.z = val == 0;
+                self.registers.f.n = false;
+                self.registers.f.h = false;
+                self.registers.f.c = false;
+                self.write_reg(Reg::A, val);
+            }
+            OP::INC(target) => {
+                let (val, h, _) = self.read_base_target(target).overflowing_hc_add(1);
+                self.registers.f.z = val == 0;
+                self.registers.f.n = false;
+                self.registers.f.h = h;
+                self.write_base_target(target, val);
+            }
 
             OP::BIT(bit, target) => {
                 let res = self.read_base_target(target);
-                self.write_flags(FlagState {
-                    z: Some((res & (1 << (bit as u8))) == 0),
-                    n: Some(false),
-                    h: Some(true),
-                    c: None,
-                });
+                self.registers.f.z = (res & (1 << (bit as u8))) == 0;
+                self.registers.f.n = false;
+                self.registers.f.h = true;
             }
+
             OP::JR(jp_type) => {
                 let jp_addr = signed_offset_u16(next_pc, self.next_byte());
                 next_pc = self.conditional_jump(jp_type, jp_addr, instr);
             }
+
+            OP::NOP => (),
             _ => bail!("Unimplemented Instruction: {:?}", instr.op),
         };
         Ok(next_pc)
@@ -118,6 +158,14 @@ impl CPU {
 
     fn next_word(&self) -> u16 {
         self.bus.read_word(self.pc + 1)
+    }
+
+    fn read_mem_addr(&self, addr: u16) -> u8 {
+        self.bus.read_byte(addr)
+    }
+
+    fn write_mem_addr(&mut self, addr: u16, val: u8) {
+        self.bus.write_byte(addr, val)
     }
 
     fn conditional_jump(&mut self, jp_type: JPType, addr: u16, instr: &mut Instruction) -> u16 {
@@ -144,38 +192,13 @@ impl CPU {
         }
     }
 
-    fn xor(&mut self, y: u8) {
-        let val = self.registers.a ^ y;
-        self.write_flags(FlagState {
-            z: Some(val == 0),
-            n: Some(false),
-            h: Some(false),
-            c: Some(false),
-        });
-        self.write_reg(Reg::A, val);
-    }
-
     fn read_flag(&self, flag: Flag) -> bool {
-        let f = self.registers.f;
+        let f = &self.registers.f;
         match flag {
-            Flag::Z => f & (1 << 7) != 0,
-            Flag::N => f & (1 << 6) != 0,
-            Flag::H => f & (1 << 5) != 0,
-            Flag::C => f & (1 << 4) != 0,
-        }
-    }
-
-    fn write_flags(&mut self, flags: FlagState) {
-        let f = [flags.z, flags.n, flags.h, flags.c];
-        for (i, &v) in f.iter().enumerate() {
-            if let Some(v) = v {
-                let x: u8 = 1 << (7 - i);
-                if v {
-                    self.registers.f |= x;
-                } else {
-                    self.registers.f &= !x;
-                }
-            }
+            Flag::Z => f.z,
+            Flag::N => f.n,
+            Flag::H => f.h,
+            Flag::C => f.c,
         }
     }
 
@@ -230,6 +253,14 @@ impl CPU {
                 self.registers.h = hi;
                 self.registers.l = lo;
             }
+        }
+    }
+
+    fn read_arith_type(&self, arith_type: ArithType) -> u8 {
+        match arith_type {
+            ArithType::Register(reg) => self.read_reg(reg),
+            ArithType::HLIndirect => self.read_hl_ind(),
+            ArithType::Imm8 => self.next_byte(),
         }
     }
 
@@ -302,7 +333,7 @@ pub struct Registers {
     c: u8,
     d: u8,
     e: u8,
-    f: u8,
+    f: Flags,
     h: u8,
     l: u8,
 }
