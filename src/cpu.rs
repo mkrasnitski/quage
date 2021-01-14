@@ -90,14 +90,14 @@ impl CPU {
     fn execute(&mut self, instr: &mut Instruction) -> Result<u16> {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
-            OP::LD(LDType::ByteImm(reg)) => self.write_reg(reg, self.next_byte()),
+            OP::LD(LDType::ByteImm(R8::Register(reg))) => self.write_reg(reg, self.next_byte()),
             OP::LD(LDType::WordImm(word)) => self.write_word(word, self.next_word()),
             OP::LD(LDType::IndFromA(ind)) => self.write_ind(ind, self.read_reg(Reg::A)),
             OP::LD(LDType::AFromInd(ind)) => {
                 let res = self.read_ind(ind);
                 self.write_reg(Reg::A, res);
             }
-            OP::LD(LDType::ToHLInd(reg)) => self.write_hl_ind(self.read_reg(reg)),
+            OP::LD(LDType::MoveByte(dest, src)) => self.write_r8(dest, self.read_r8(src)),
             OP::LD(LDType::ByteIndFromA) => {
                 self.write_mem_addr(0xFF00 + self.next_byte() as u16, self.read_reg(Reg::A));
             }
@@ -126,30 +126,61 @@ impl CPU {
                 self.registers.f.c = false;
                 self.write_reg(Reg::A, val);
             }
-            OP::INC(target) => {
-                let (val, h, _) = self.read_base_target(target).overflowing_hc_add(1);
+            OP::INC(IncDecTarget::R8(r8)) => {
+                let (val, h, _) = self.read_r8(r8).overflowing_hc_add(1);
                 self.registers.f.z = val == 0;
                 self.registers.f.n = false;
                 self.registers.f.h = h;
-                self.write_base_target(target, val);
+                self.write_r8(r8, val);
             }
 
             OP::BIT(bit, target) => {
-                let res = self.read_base_target(target);
+                let res = self.read_r8(target);
                 self.registers.f.z = (res & (1 << (bit as u8))) == 0;
                 self.registers.f.n = false;
                 self.registers.f.h = true;
             }
 
             OP::JR(jp_type) => {
-                let jp_addr = signed_offset_u16(next_pc, self.next_byte());
-                next_pc = self.conditional_jump(jp_type, jp_addr, instr);
+                if self.check_branch_condition(jp_type) {
+                    next_pc = signed_offset_u16(next_pc, self.next_byte());
+                    instr.cycles += 4;
+                }
+            }
+            OP::CALL(jp_type) => {
+                if self.check_branch_condition(jp_type) {
+                    self.push_word(next_pc);
+                    next_pc = self.next_word();
+                    instr.cycles += 12;
+                }
             }
 
             OP::NOP => (),
             _ => bail!("Unimplemented Instruction: {:?}", instr.op),
         };
         Ok(next_pc)
+    }
+
+    fn pop(&mut self) -> u8 {
+        let res = self.bus.read_byte(self.sp);
+        self.sp += 1;
+        res
+    }
+
+    fn push(&mut self, val: u8) {
+        self.sp -= 1;
+        self.bus.write_byte(self.sp, val);
+    }
+
+    fn pop_word(&mut self) -> u16 {
+        let w1 = self.pop() as u16;
+        let w2 = self.pop() as u16;
+        (w2 << 8) | w1
+    }
+
+    fn push_word(&mut self, val: u16) {
+        self.push((val >> 8) as u8);
+        self.push(val as u8);
     }
 
     fn next_byte(&self) -> u8 {
@@ -168,27 +199,13 @@ impl CPU {
         self.bus.write_byte(addr, val)
     }
 
-    fn conditional_jump(&mut self, jp_type: JPType, addr: u16, instr: &mut Instruction) -> u16 {
-        if let Some(addr) = self.branch_addr(jp_type, addr) {
-            instr.cycles += 4;
-            addr
-        } else {
-            self.pc + instr.len
-        }
-    }
-
-    fn branch_addr(&self, jp_type: JPType, addr: u16) -> Option<u16> {
-        let condition = match jp_type {
+    fn check_branch_condition(&self, jp_type: JPType) -> bool {
+        match jp_type {
             JPType::Zero => self.read_flag(Flag::Z),
             JPType::NotZero => !self.read_flag(Flag::Z),
             JPType::Carry => self.read_flag(Flag::C),
             JPType::NotCarry => !self.read_flag(Flag::C),
             JPType::Always => true,
-        };
-        if condition {
-            Some(addr)
-        } else {
-            None
         }
     }
 
@@ -258,23 +275,23 @@ impl CPU {
 
     fn read_arith_type(&self, arith_type: ArithType) -> u8 {
         match arith_type {
-            ArithType::Register(reg) => self.read_reg(reg),
-            ArithType::HLIndirect => self.read_hl_ind(),
+            ArithType::R8(R8::Register(reg)) => self.read_reg(reg),
+            ArithType::R8(R8::HLIndirect) => self.read_hl_ind(),
             ArithType::Imm8 => self.next_byte(),
         }
     }
 
-    fn read_base_target(&self, target: BaseTarget) -> u8 {
+    fn read_r8(&self, target: R8) -> u8 {
         match target {
-            BaseTarget::Register(reg) => self.read_reg(reg),
-            BaseTarget::HLIndirect => self.read_hl_ind(),
+            R8::Register(reg) => self.read_reg(reg),
+            R8::HLIndirect => self.read_hl_ind(),
         }
     }
 
-    fn write_base_target(&mut self, target: BaseTarget, val: u8) {
+    fn write_r8(&mut self, target: R8, val: u8) {
         match target {
-            BaseTarget::Register(reg) => self.write_reg(reg, val),
-            BaseTarget::HLIndirect => self.write_hl_ind(val),
+            R8::Register(reg) => self.write_reg(reg, val),
+            R8::HLIndirect => self.write_hl_ind(val),
         }
     }
 
