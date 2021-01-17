@@ -90,16 +90,17 @@ impl CPU {
     fn execute(&mut self, instr: &mut Instruction) -> Result<u16> {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
-            OP::LD(LDType::ByteImm(R8::Register(reg))) => self.write_reg(reg, self.next_byte()),
+            OP::LD(LDType::ByteImm(r8)) => self.write_r8(r8, self.next_byte()),
             OP::LD(LDType::WordImm(word)) => self.write_word(word, self.next_word()),
-            OP::LD(LDType::IndFromA(ind)) => self.write_ind(ind, self.read_reg(Reg::A)),
+            OP::LD(LDType::IndFromA(ind)) => self.write_ind(ind, self.read_r8(R8::A)),
             OP::LD(LDType::AFromInd(ind)) => {
                 let res = self.read_ind(ind);
-                self.write_reg(Reg::A, res);
+                self.write_r8(R8::A, res);
             }
             OP::LD(LDType::MoveByte(dest, src)) => self.write_r8(dest, self.read_r8(src)),
             OP::LD(LDType::ByteIndFromA) => {
-                self.write_mem_addr(0xFF00 + self.next_byte() as u16, self.read_reg(Reg::A));
+                self.bus
+                    .write_byte(0xFF00 + self.next_byte() as u16, self.read_r8(R8::A));
             }
 
             OP::AND(arith_type) => {
@@ -108,7 +109,7 @@ impl CPU {
                 self.registers.f.n = false;
                 self.registers.f.h = true;
                 self.registers.f.c = false;
-                self.write_reg(Reg::A, val);
+                self.write_r8(R8::A, val);
             }
             OP::OR(arith_type) => {
                 let val = self.registers.a | self.read_arith_type(arith_type);
@@ -116,7 +117,7 @@ impl CPU {
                 self.registers.f.n = false;
                 self.registers.f.h = false;
                 self.registers.f.c = false;
-                self.write_reg(Reg::A, val);
+                self.write_r8(R8::A, val);
             }
             OP::XOR(arith_type) => {
                 let val = self.registers.a ^ self.read_arith_type(arith_type);
@@ -124,7 +125,7 @@ impl CPU {
                 self.registers.f.n = false;
                 self.registers.f.h = false;
                 self.registers.f.c = false;
-                self.write_reg(Reg::A, val);
+                self.write_r8(R8::A, val);
             }
             OP::INC(IncDecTarget::R8(r8)) => {
                 let (val, h, _) = self.read_r8(r8).overflowing_hc_add(1);
@@ -141,19 +142,21 @@ impl CPU {
                 self.registers.f.h = true;
             }
 
-            OP::JR(jp_type) => {
-                if self.check_branch_condition(jp_type) {
+            OP::JR(condition) => {
+                if self.check_branch_condition(condition) {
                     next_pc = signed_offset_u16(next_pc, self.next_byte());
                     instr.cycles += 4;
                 }
             }
-            OP::CALL(jp_type) => {
-                if self.check_branch_condition(jp_type) {
+            OP::CALL(condition) => {
+                if self.check_branch_condition(condition) {
                     self.push_word(next_pc);
                     next_pc = self.next_word();
                     instr.cycles += 12;
                 }
             }
+
+            OP::PUSH(push_pop_target) => self.push_word(self.read_push_pop(push_pop_target)),
 
             OP::NOP => (),
             _ => bail!("Unimplemented Instruction: {:?}", instr.op),
@@ -191,21 +194,13 @@ impl CPU {
         self.bus.read_word(self.pc + 1)
     }
 
-    fn read_mem_addr(&self, addr: u16) -> u8 {
-        self.bus.read_byte(addr)
-    }
-
-    fn write_mem_addr(&mut self, addr: u16, val: u8) {
-        self.bus.write_byte(addr, val)
-    }
-
-    fn check_branch_condition(&self, jp_type: JPType) -> bool {
-        match jp_type {
-            JPType::Zero => self.read_flag(Flag::Z),
-            JPType::NotZero => !self.read_flag(Flag::Z),
-            JPType::Carry => self.read_flag(Flag::C),
-            JPType::NotCarry => !self.read_flag(Flag::C),
-            JPType::Always => true,
+    fn check_branch_condition(&self, condition: BranchCondition) -> bool {
+        match condition {
+            BranchCondition::NotZero => !self.read_flag(Flag::Z),
+            BranchCondition::Zero => self.read_flag(Flag::Z),
+            BranchCondition::NotCarry => !self.read_flag(Flag::C),
+            BranchCondition::Carry => self.read_flag(Flag::C),
+            BranchCondition::Always => true,
         }
     }
 
@@ -219,29 +214,30 @@ impl CPU {
         }
     }
 
-    fn read_reg(&self, reg: Reg) -> u8 {
-        match reg {
-            Reg::A => self.registers.a,
-            Reg::B => self.registers.b,
-            Reg::C => self.registers.c,
-            Reg::D => self.registers.d,
-            Reg::E => self.registers.e,
-            Reg::H => self.registers.h,
-            Reg::L => self.registers.l,
+    fn read_r8(&self, r8: R8) -> u8 {
+        match r8 {
+            R8::A => self.registers.a,
+            R8::B => self.registers.b,
+            R8::C => self.registers.c,
+            R8::D => self.registers.d,
+            R8::E => self.registers.e,
+            R8::H => self.registers.h,
+            R8::L => self.registers.l,
+            R8::HLInd => self.bus.read_byte(self.read_word(Word::HL)),
         }
     }
 
-    fn write_reg(&mut self, reg: Reg, val: u8) {
-        let rg = match reg {
-            Reg::A => &mut self.registers.a,
-            Reg::B => &mut self.registers.b,
-            Reg::C => &mut self.registers.c,
-            Reg::D => &mut self.registers.d,
-            Reg::E => &mut self.registers.e,
-            Reg::H => &mut self.registers.h,
-            Reg::L => &mut self.registers.l,
-        };
-        *rg = val;
+    fn write_r8(&mut self, r8: R8, val: u8) {
+        match r8 {
+            R8::A => self.registers.a = val,
+            R8::B => self.registers.b = val,
+            R8::C => self.registers.c = val,
+            R8::D => self.registers.d = val,
+            R8::E => self.registers.e = val,
+            R8::H => self.registers.h = val,
+            R8::L => self.registers.l = val,
+            R8::HLInd => self.bus.write_byte(self.read_word(Word::HL), val),
+        }
     }
 
     fn read_word(&self, w: Word) -> u16 {
@@ -273,39 +269,39 @@ impl CPU {
         }
     }
 
+    fn read_push_pop(&self, p: PushPopTarget) -> u16 {
+        match p {
+            PushPopTarget::BC => self.read_word(Word::BC),
+            PushPopTarget::DE => self.read_word(Word::DE),
+            PushPopTarget::HL => self.read_word(Word::HL),
+            PushPopTarget::AF => {
+                ((self.registers.a as u16) << 8) | u8::from(self.registers.f) as u16
+            }
+        }
+    }
+
+    fn write_push_pop(&mut self, p: PushPopTarget, val: u16) {
+        match p {
+            PushPopTarget::BC => self.write_word(Word::BC, val),
+            PushPopTarget::DE => self.write_word(Word::DE, val),
+            PushPopTarget::HL => self.write_word(Word::HL, val),
+            PushPopTarget::AF => {
+                self.registers.a = (val >> 8) as u8;
+                self.registers.f = Flags::from(val as u8);
+            }
+        }
+    }
+
     fn read_arith_type(&self, arith_type: ArithType) -> u8 {
         match arith_type {
-            ArithType::R8(R8::Register(reg)) => self.read_reg(reg),
-            ArithType::R8(R8::HLIndirect) => self.read_hl_ind(),
+            ArithType::R8(r8) => self.read_r8(r8),
             ArithType::Imm8 => self.next_byte(),
         }
     }
 
-    fn read_r8(&self, target: R8) -> u8 {
-        match target {
-            R8::Register(reg) => self.read_reg(reg),
-            R8::HLIndirect => self.read_hl_ind(),
-        }
-    }
-
-    fn write_r8(&mut self, target: R8, val: u8) {
-        match target {
-            R8::Register(reg) => self.write_reg(reg, val),
-            R8::HLIndirect => self.write_hl_ind(val),
-        }
-    }
-
-    fn read_hl_ind(&self) -> u8 {
-        self.bus.read_byte(self.read_word(Word::HL))
-    }
-
-    fn write_hl_ind(&mut self, val: u8) {
-        self.bus.write_byte(self.read_word(Word::HL), val);
-    }
-
     fn read_ind(&mut self, ind: Indirect) -> u8 {
         match ind {
-            Indirect::CInd => self.bus.read_byte(0xFF00 + self.read_reg(Reg::C) as u16),
+            Indirect::CInd => self.bus.read_byte(0xFF00 + self.read_r8(R8::C) as u16),
             Indirect::BCInd => self.bus.read_byte(self.read_word(Word::BC)),
             Indirect::DEInd => self.bus.read_byte(self.read_word(Word::DE)),
             Indirect::HLIndPlus => {
@@ -327,7 +323,7 @@ impl CPU {
         match ind {
             Indirect::CInd => self
                 .bus
-                .write_byte(0xFF00 + self.read_reg(Reg::C) as u16, val),
+                .write_byte(0xFF00 + self.read_r8(R8::C) as u16, val),
             Indirect::BCInd => self.bus.write_byte(self.read_word(Word::BC), val),
             Indirect::DEInd => self.bus.write_byte(self.read_word(Word::DE), val),
             Indirect::HLIndPlus => {

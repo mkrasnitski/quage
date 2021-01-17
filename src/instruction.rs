@@ -1,51 +1,65 @@
 #![allow(dead_code)]
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
+use enum_primitive_derive::Primitive;
+use num_traits::FromPrimitive;
 use std::fmt;
 
-#[derive(Debug, Copy, Clone)]
-pub enum Reg {
-    A,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum Word {
-    BC,
-    DE,
-    HL,
-    SP,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum Indirect {
-    CInd,       // (FF00 + C)
-    BCInd,      // (BC)
-    DEInd,      // (DE)
-    HLIndPlus,  // (HL+)
-    HLIndMinus, // (HL-)
-}
-
-#[derive(Debug, Copy, Clone)]
-pub enum BitPosition {
-    Zero,
-    One,
-    Two,
-    Three,
-    Four,
-    Five,
-    Six,
-    Seven,
-}
-
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Primitive)]
 pub enum R8 {
-    Register(Reg),
-    HLIndirect,
+    B = 0,
+    C = 1,
+    D = 2,
+    E = 3,
+    H = 4,
+    L = 5,
+    HLInd = 6,
+    A = 7,
+}
+
+#[derive(Debug, Copy, Clone, Primitive)]
+pub enum Word {
+    BC = 0,
+    DE = 1,
+    HL = 2,
+    SP = 3,
+}
+
+#[derive(Debug, Copy, Clone, Primitive)]
+pub enum Indirect {
+    BCInd = 0,      // (BC)
+    DEInd = 1,      // (DE)
+    HLIndPlus = 2,  // (HL+)
+    HLIndMinus = 3, // (HL-)
+    CInd = 4,       // (FF00 + C)
+}
+
+#[derive(Debug, Copy, Clone, Primitive)]
+pub enum PushPopTarget {
+    BC = 0,
+    DE = 1,
+    HL = 2,
+    AF = 3,
+}
+
+#[derive(Debug, Copy, Clone, Primitive)]
+pub enum BranchCondition {
+    NotZero = 0,
+    Zero = 1,
+    NotCarry = 2,
+    Carry = 3,
+    Always = 4,
+}
+
+#[derive(Debug, Copy, Clone, Primitive)]
+pub enum BitPosition {
+    Zero = 0,
+    One = 1,
+    Two = 2,
+    Three = 3,
+    Four = 4,
+    Five = 5,
+    Six = 6,
+    Seven = 7,
 }
 
 #[derive(Debug)]
@@ -71,15 +85,6 @@ pub enum ArithType {
     Imm8,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub enum JPType {
-    Zero,
-    NotZero,
-    Carry,
-    NotCarry,
-    Always,
-}
-
 #[derive(Debug)]
 pub enum IncDecTarget {
     R8(R8),
@@ -98,69 +103,91 @@ pub enum OP {
     DEC(IncDecTarget),
 
     BIT(BitPosition, R8),
+    RES(BitPosition, R8),
+    SET(BitPosition, R8),
 
-    JR(JPType),
-    CALL(JPType),
+    JR(BranchCondition),
+    CALL(BranchCondition),
+
+    PUSH(PushPopTarget),
 
     NOP,
 }
 
 impl OP {
     pub fn from_byte(byte: u8) -> Result<Self> {
+        let _g1 = byte >> 6;
+        let g2 = (byte >> 3) & 0b111;
+        let g3 = byte & 0b111;
         let op = match byte {
+            0x01 | 0x11 | 0x21 | 0x31 => OP::LD(LDType::WordImm(OP::decode_word(g2 >> 1)?)),
+            0x02 | 0x12 | 0x22 | 0x32 => OP::LD(LDType::IndFromA(OP::decode_indirect(g2 >> 1)?)),
+            0x04 | 0x14 | 0x24 | 0x34 | 0x0c | 0x1c | 0x2c | 0x3c => {
+                OP::INC(IncDecTarget::R8(OP::decode_r8(g2)?))
+            }
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0e | 0x1e | 0x2e | 0x3e => {
+                OP::LD(LDType::ByteImm(OP::decode_r8(g2)?))
+            }
+            0x0a | 0x1a | 0x2a | 0x3a => OP::LD(LDType::AFromInd(OP::decode_indirect(g2 >> 1)?)),
+            0x40..=0x75 | 0x77..=0x7f => {
+                let dest = OP::decode_r8(g2)?;
+                let src = OP::decode_r8(g3)?;
+                OP::LD(LDType::MoveByte(dest, src))
+            }
+            0xc5 | 0xd5 | 0xe5 | 0xf5 => OP::PUSH(OP::decode_push_pop(g2 >> 1)?),
+
             0x00 => OP::NOP,
-            0x0c => OP::INC(IncDecTarget::R8(R8::Register(Reg::C))),
-            0x0e => OP::LD(LDType::ByteImm(R8::Register(Reg::C))),
-            0x11 => OP::LD(LDType::WordImm(Word::DE)),
-            0x1a => OP::LD(LDType::AFromInd(Indirect::DEInd)),
-            0x20 => OP::JR(JPType::NotZero),
-            0x21 => OP::LD(LDType::WordImm(Word::HL)),
-            0x31 => OP::LD(LDType::WordImm(Word::SP)),
-            0x3e => OP::LD(LDType::ByteImm(R8::Register(Reg::A))),
-            0x32 => OP::LD(LDType::IndFromA(Indirect::HLIndMinus)),
-            0x40..=0x75 | 0x77..=0x7f => OP::ld_r8_from_byte(byte)?,
-            0xcd => OP::CALL(JPType::Always),
+            0x20 => OP::JR(BranchCondition::NotZero),
+            0xaf => OP::XOR(ArithType::R8(R8::A)),
+            0xcd => OP::CALL(BranchCondition::Always),
             0xe0 => OP::LD(LDType::ByteIndFromA),
             0xe2 => OP::LD(LDType::IndFromA(Indirect::CInd)),
-            0xaf => OP::XOR(ArithType::R8(R8::Register(Reg::A))),
-            _ => bail!("Invalid opcode: {:02x}", byte),
+            0xf2 => OP::LD(LDType::AFromInd(Indirect::CInd)),
+
+            0xd3 | 0xdb | 0xdd | 0xe3 | 0xe4 | 0xeb | 0xec | 0xed | 0xf4 | 0xfc | 0xfd => {
+                bail!("Invalid opcode: {:02x}", byte)
+            }
+            _ => bail!("Unrecognized opcode: {:02x}", byte),
         };
         Ok(op)
-    }
-
-    fn ld_r8_from_byte(byte: u8) -> Result<OP> {
-        if byte < 0x40 || byte > 0x7f || byte == 0x76 {
-            bail!("Invalid LD R8, R8 byte: {}", byte);
-        }
-        let src = OP::decode_r8(byte & 0b111)?;
-        let dest = OP::decode_r8((byte & 0b111000) >> 3)?;
-        Ok(OP::LD(LDType::MoveByte(dest, src)))
-    }
-
-    fn decode_r8(val: u8) -> Result<R8> {
-        let ret = match val {
-            0 => R8::Register(Reg::B),
-            1 => R8::Register(Reg::C),
-            2 => R8::Register(Reg::D),
-            3 => R8::Register(Reg::E),
-            4 => R8::Register(Reg::H),
-            5 => R8::Register(Reg::L),
-            6 => R8::HLIndirect,
-            7 => R8::Register(Reg::A),
-            _ => bail!("Invalid R8 val: {}", val),
-        };
-        Ok(ret)
     }
 
     pub fn from_prefix_byte(byte: u8) -> Result<Self> {
+        let _g1 = byte >> 6;
+        let g2 = (byte >> 3) & 0b111;
+        let g3 = OP::decode_r8(byte & 0b111)?;
         let op = match byte {
-            0x7c => OP::BIT(BitPosition::Seven, R8::Register(Reg::H)),
-            _ => bail!("Invalid opcode: {:02x}", byte),
+            // 0x00..=0x3f => Shifts/Rotates,
+            0x40..=0x7f => OP::BIT(OP::decode_bit(g2)?, g3),
+            0x80..=0xbf => OP::RES(OP::decode_bit(g2)?, g3),
+            0xc0..=0xff => OP::SET(OP::decode_bit(g2)?, g3),
+            _ => bail!("Invalid prefixed opcode: cb {:02x}", byte),
         };
         Ok(op)
     }
+
+    fn decode_r8(val: u8) -> Result<R8> {
+        R8::from_u8(val).ok_or(anyhow!("Invalid R8 val: {}", val))
+    }
+
+    fn decode_word(val: u8) -> Result<Word> {
+        Word::from_u8(val).ok_or(anyhow!("Invalid Word val: {}", val))
+    }
+
+    fn decode_indirect(val: u8) -> Result<Indirect> {
+        Indirect::from_u8(val).ok_or(anyhow!("Invalid Indirect val: {}", val))
+    }
+
+    fn decode_push_pop(val: u8) -> Result<PushPopTarget> {
+        PushPopTarget::from_u8(val).ok_or(anyhow!("Invalid POP/PUSH val: {}", val))
+    }
+
+    fn decode_bit(val: u8) -> Result<BitPosition> {
+        BitPosition::from_u8(val).ok_or(anyhow!("Invalid BitPosition val: {}", val))
+    }
 }
 
+#[derive(Debug)]
 pub struct Instruction {
     pub op: OP,
     pub len: u16,
@@ -184,67 +211,47 @@ impl Instruction {
         Ok(Instruction { op, len, cycles })
     }
 
-    fn get_ld_len_cycles(ld_type: &LDType) -> (u16, u64) {
-        match ld_type {
-            LDType::MoveByte(R8::Register(_), R8::Register(_)) => (1, 4),
-            LDType::SPFromHL
-            | LDType::MoveByte(R8::HLIndirect, _)
-            | LDType::MoveByte(_, R8::HLIndirect)
-            | LDType::AFromInd(_)
-            | LDType::IndFromA(_) => (1, 8),
-            LDType::ByteImm(R8::Register(_)) => (2, 8),
-            LDType::ByteImm(R8::HLIndirect)
-            | LDType::AFromByteInd
-            | LDType::ByteIndFromA
-            | LDType::HLFromSPi8 => (2, 12),
-            LDType::WordImm(_) => (3, 12),
-            LDType::AFromWordInd | LDType::WordIndFromA => (3, 16),
-            LDType::AddrFromSP => (3, 20),
-        }
-    }
-
-    fn get_arith_len_cycles(arith_type: &ArithType) -> (u16, u64) {
-        match arith_type {
-            ArithType::R8(R8::Register(_)) => (1, 4),
-            ArithType::R8(R8::HLIndirect) => (1, 8),
-            ArithType::Imm8 => (2, 8),
-        }
-    }
-
-    fn get_r8_len_cycles(r8: &R8) -> (u16, u64) {
-        match r8 {
-            R8::Register(_) => (1, 4),
-            R8::HLIndirect => (1, 12),
-        }
-    }
-
-    fn get_bit_len_cycles(r8: &R8) -> (u16, u64) {
-        match r8 {
-            R8::Register(_) => (2, 8),
-            R8::HLIndirect => (2, 12),
-        }
-    }
-
-    fn get_inc_dec_len_cycles(id_target: &IncDecTarget) -> (u16, u64) {
-        match id_target {
-            IncDecTarget::R8(r8) => Instruction::get_r8_len_cycles(r8),
-            IncDecTarget::Word(_) => (1, 12),
-        }
-    }
-
     fn get_len_cycles(op: &OP) -> (u16, u64) {
         match op {
             OP::NOP => (1, 4),
             OP::JR(_) => (2, 8),
             OP::CALL(_) => (3, 12),
-            OP::BIT(_, r8) => Instruction::get_bit_len_cycles(r8),
-            OP::LD(ld_type) => Instruction::get_ld_len_cycles(ld_type),
-            OP::XOR(arith_type) | OP::AND(arith_type) | OP::OR(arith_type) => {
-                Instruction::get_arith_len_cycles(arith_type)
-            }
-            OP::INC(id_target) | OP::DEC(id_target) => {
-                Instruction::get_inc_dec_len_cycles(id_target)
-            }
+            OP::PUSH(_) => (1, 16),
+            OP::BIT(_, r8) => match r8 {
+                R8::HLInd => (2, 12),
+                _ => (2, 8),
+            },
+            OP::RES(_, r8) | OP::SET(_, r8) => match r8 {
+                R8::HLInd => (2, 16),
+                _ => (2, 8),
+            },
+            OP::XOR(arith) | OP::AND(arith) | OP::OR(arith) => match arith {
+                ArithType::R8(r8) => match r8 {
+                    R8::HLInd => (1, 8),
+                    _ => (1, 4),
+                },
+                ArithType::Imm8 => (2, 8),
+            },
+            OP::INC(id_target) | OP::DEC(id_target) => match id_target {
+                IncDecTarget::Word(_) => (1, 8),
+                IncDecTarget::R8(R8::HLInd) => (1, 12),
+                IncDecTarget::R8(_) => (1, 4),
+            },
+            OP::LD(ld_type) => match ld_type {
+                LDType::MoveByte(dest, src) => match (dest, src) {
+                    (R8::HLInd, _) | (_, R8::HLInd) => (1, 8),
+                    (_, _) => (1, 4),
+                },
+                LDType::SPFromHL | LDType::AFromInd(_) | LDType::IndFromA(_) => (1, 8),
+                LDType::ByteImm(r8) => match r8 {
+                    R8::HLInd => (2, 12),
+                    _ => (2, 8),
+                },
+                LDType::AFromByteInd | LDType::ByteIndFromA | LDType::HLFromSPi8 => (2, 12),
+                LDType::WordImm(_) => (3, 12),
+                LDType::AFromWordInd | LDType::WordIndFromA => (3, 16),
+                LDType::AddrFromSP => (3, 20),
+            },
         }
     }
 }
