@@ -36,6 +36,10 @@ pub trait HalfCarry {
     fn overflowing_hc_add(&self, rhs: Self) -> (Self, bool, bool)
     where
         Self: Sized;
+
+    fn overflowing_hc_sub(&self, rhs: Self) -> (Self, bool, bool)
+    where
+        Self: Sized;
 }
 
 impl HalfCarry for u8 {
@@ -44,12 +48,24 @@ impl HalfCarry for u8 {
         let h = ((self & 0xf) + (rhs & 0xf)) & 0x10 == 0x10;
         (v, h, c)
     }
+
+    fn overflowing_hc_sub(&self, rhs: u8) -> (u8, bool, bool) {
+        let (v, c) = self.overflowing_sub(rhs);
+        let h = (self & 0xf) < (rhs & 0xf);
+        (v, h, c)
+    }
 }
 
 impl HalfCarry for u16 {
     fn overflowing_hc_add(&self, rhs: u16) -> (u16, bool, bool) {
         let (v, c) = self.overflowing_add(rhs);
         let h = ((self & 0xff) + (rhs & 0xff)) & 0x100 == 0x100;
+        (v, h, c)
+    }
+
+    fn overflowing_hc_sub(&self, rhs: u16) -> (u16, bool, bool) {
+        let (v, c) = self.overflowing_sub(rhs);
+        let h = (self & 0xff) < (rhs & 0xff);
         (v, h, c)
     }
 }

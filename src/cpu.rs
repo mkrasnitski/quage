@@ -5,6 +5,9 @@ use crate::flags::*;
 use crate::gpu::*;
 use crate::instruction::*;
 
+use std::io::Write;
+const DEBUG: bool = false;
+
 fn signed_offset_u16(x: u16, y: u8) -> u16 {
     (x as i16 + y as i8 as i16) as u16
 }
@@ -18,7 +21,7 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(bootrom: Vec<u8>) -> Self {
+    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, skip_bootrom: bool) -> Self {
         let mut cpu = CPU {
             pc: 0,
             sp: 0,
@@ -43,7 +46,38 @@ impl CPU {
                 gpu: GPU {},
             },
         };
-        cpu.bus.memory[..bootrom.len()].copy_from_slice(&bootrom);
+        cpu.bus.memory[..cartridge.len()].copy_from_slice(&cartridge);
+        if skip_bootrom {
+            cpu.registers.a = 0x01;
+            cpu.registers.c = 0x13;
+            cpu.registers.e = 0xd8;
+            cpu.registers.h = 0x01;
+            cpu.registers.l = 0x4d;
+            cpu.registers.f = Flags::from(0xb0);
+            cpu.sp = 0xfffe;
+            cpu.bus.memory[0xff10] = 0x80;
+            cpu.bus.memory[0xff11] = 0xbf;
+            cpu.bus.memory[0xff12] = 0xf3;
+            cpu.bus.memory[0xff14] = 0xbf;
+            cpu.bus.memory[0xff16] = 0x3f;
+            cpu.bus.memory[0xff19] = 0xbf;
+            cpu.bus.memory[0xff1a] = 0x7f;
+            cpu.bus.memory[0xff1b] = 0xff;
+            cpu.bus.memory[0xff1c] = 0x9f;
+            cpu.bus.memory[0xff1e] = 0xbf;
+            cpu.bus.memory[0xff20] = 0xff;
+            cpu.bus.memory[0xff23] = 0xbf;
+            cpu.bus.memory[0xff24] = 0x77;
+            cpu.bus.memory[0xff25] = 0xf3;
+            cpu.bus.memory[0xff26] = 0xf1;
+            cpu.bus.memory[0xff40] = 0x91;
+            cpu.bus.memory[0xff47] = 0xfc;
+            cpu.bus.memory[0xff48] = 0xff;
+            cpu.bus.memory[0xff49] = 0xff;
+            cpu.pc = 0x100;
+        } else {
+            cpu.bus.memory[..bootrom.len()].copy_from_slice(&bootrom);
+        }
         cpu
     }
 
@@ -82,7 +116,15 @@ impl CPU {
             .join(" ");
         let state = format!("{} {: >8}", self.state(), bytes);
         self.pc = self.execute(&mut instr)?;
-        println!("{} -> {}", state, instr);
+        if DEBUG {
+            println!("{} -> {}", state, instr);
+        }
+        if self.bus.read_byte(0xFF02) == 0x81 {
+            let c = self.bus.read_byte(0xFF01) as char;
+            self.bus.write_byte(0xFF02, 0x00);
+            print!("{}", c);
+            std::io::stdout().flush().unwrap();
+        }
         self.cycles += instr.cycles;
         Ok(())
     }
@@ -98,49 +140,120 @@ impl CPU {
                 self.write_r8(R8::A, res);
             }
             OP::LD(LDType::MoveByte(dest, src)) => self.write_r8(dest, self.read_r8(src)),
-            OP::LD(LDType::ByteIndFromA) => {
-                self.bus
-                    .write_byte(0xFF00 + self.next_byte() as u16, self.read_r8(R8::A));
+            OP::LD(LDType::ByteIndFromA) => self
+                .bus
+                .write_byte(0xFF00 + self.next_byte() as u16, self.read_r8(R8::A)),
+            OP::LD(LDType::AFromByteInd) => {
+                self.write_r8(R8::A, self.bus.read_byte(0xFF00 + self.next_byte() as u16))
             }
+            OP::LD(LDType::AddrFromA) => self.bus.write_byte(self.next_word(), self.read_r8(R8::A)),
+            OP::LD(LDType::AFromAddr) => self.write_r8(R8::A, self.bus.read_byte(self.next_word())),
+            OP::LD(LDType::SPFromHL) => self.write_word(Word::SP, self.read_word(Word::HL)),
+            OP::LD(LDType::AddrFromSP) => self
+                .bus
+                .write_word(self.next_word(), self.read_word(Word::SP)),
 
             OP::AND(arith_type) => {
-                let val = self.registers.a & self.read_arith_type(arith_type);
-                self.registers.f.z = val == 0;
-                self.registers.f.n = false;
-                self.registers.f.h = true;
-                self.registers.f.c = false;
+                let val = self.registers.a & self.read_arith(arith_type);
+                self.set_flags(val == 0, false, true, false);
                 self.write_r8(R8::A, val);
             }
             OP::OR(arith_type) => {
-                let val = self.registers.a | self.read_arith_type(arith_type);
-                self.registers.f.z = val == 0;
-                self.registers.f.n = false;
-                self.registers.f.h = false;
-                self.registers.f.c = false;
+                let val = self.registers.a | self.read_arith(arith_type);
+                self.set_flags(val == 0, false, false, false);
                 self.write_r8(R8::A, val);
             }
             OP::XOR(arith_type) => {
-                let val = self.registers.a ^ self.read_arith_type(arith_type);
-                self.registers.f.z = val == 0;
-                self.registers.f.n = false;
-                self.registers.f.h = false;
-                self.registers.f.c = false;
+                let val = self.registers.a ^ self.read_arith(arith_type);
+                self.set_flags(val == 0, false, false, false);
                 self.write_r8(R8::A, val);
             }
-            OP::INC(IncDecTarget::R8(r8)) => {
-                let (val, h, _) = self.read_r8(r8).overflowing_hc_add(1);
-                self.registers.f.z = val == 0;
-                self.registers.f.n = false;
-                self.registers.f.h = h;
-                self.write_r8(r8, val);
+            OP::ADD(arith_type) => {
+                let (val, h, c) = self
+                    .read_r8(R8::A)
+                    .overflowing_hc_add(self.read_arith(arith_type));
+                self.set_flags(val == 0, false, h, c);
+                self.write_r8(R8::A, val);
             }
+            OP::ADC(arith_type) => {
+                let (val, h1, c1) = self
+                    .read_r8(R8::A)
+                    .overflowing_hc_add(self.read_arith(arith_type));
+                let (val, h2, c2) = val.overflowing_hc_add(self.registers.f.c as u8);
+                self.set_flags(val == 0, false, h1 | h2, c1 | c2);
+                self.write_r8(R8::A, val);
+            }
+            OP::ADDHL(word) => {
+                let (val, h, c) = self
+                    .read_word(Word::HL)
+                    .overflowing_hc_add(self.read_word(word));
+                self.set_flags(self.registers.f.z, false, h, c);
+                self.write_word(Word::HL, val);
+            }
+            OP::SUB(arith_type) | OP::CP(arith_type) => {
+                let (val, h, c) = self
+                    .read_r8(R8::A)
+                    .overflowing_hc_sub(self.read_arith(arith_type));
+                self.set_flags(val == 0, true, h, c);
+                if let OP::SUB(_) = instr.op {
+                    self.write_r8(R8::A, val);
+                }
+            }
+            OP::SBC(arith_type) => {
+                let (val, h1, c1) = self
+                    .read_r8(R8::A)
+                    .overflowing_hc_sub(self.read_arith(arith_type));
+                let (val, h2, c2) = val.overflowing_hc_sub(self.registers.f.c as u8);
+                self.set_flags(val == 0, true, h1 | h2, c1 | c2);
+                self.write_r8(R8::A, val);
+            }
+            OP::CPL => {
+                self.set_flags(self.registers.f.z, true, true, self.registers.f.c);
+                self.write_r8(R8::A, self.read_r8(R8::A) ^ 0xFF);
+            }
+            OP::SCF => self.set_flags(self.registers.f.z, false, false, true),
+            OP::CCF => self.set_flags(self.registers.f.z, false, false, !self.registers.f.c),
 
-            OP::BIT(bit, target) => {
-                let res = self.read_r8(target);
-                self.registers.f.z = (res & (1 << (bit as u8))) == 0;
-                self.registers.f.n = false;
-                self.registers.f.h = true;
+            OP::INC(inc_dec) => match inc_dec {
+                IncDecTarget::R8(r8) => {
+                    let (val, h, _) = self.read_r8(r8).overflowing_hc_add(1);
+                    self.set_flags(val == 0, false, h, self.registers.f.c);
+                    self.write_r8(r8, val);
+                }
+                IncDecTarget::Word(w) => self.write_word(w, self.read_word(w).wrapping_add(1)),
+            },
+            OP::DEC(inc_dec) => match inc_dec {
+                IncDecTarget::R8(r8) => {
+                    let (val, h, _) = self.read_r8(r8).overflowing_hc_sub(1);
+                    self.set_flags(val == 0, true, h, self.registers.f.c);
+                    self.write_r8(r8, val);
+                }
+                IncDecTarget::Word(w) => self.write_word(w, self.read_word(w).wrapping_sub(1)),
+            },
+
+            OP::BIT(bit, r8) => {
+                let res = self.read_r8(r8);
+                let bit = bit as u8;
+                self.set_flags((res & (1 << bit)) == 0, false, true, self.registers.f.c);
             }
+            OP::SWAP(r8) => {
+                let val = self.read_r8(r8);
+                self.write_r8(r8, ((val & 0x0f) << 4) | ((val & 0xf0) >> 4));
+            }
+            OP::SET(bit, r8) => self.write_r8(r8, self.read_r8(r8) | (1 << (bit as u8))),
+            OP::RES(bit, r8) => self.write_r8(r8, self.read_r8(r8) & !(1 << (bit as u8))),
+
+            OP::RL(r8) => self.shift_left(r8, self.registers.f.c),
+            OP::RLC(r8) => self.shift_left(r8, self.read_r8(r8) & (1 << 7) != 0),
+            OP::SLA(r8) => self.shift_left(r8, false),
+            OP::RLA => self.shift_left(R8::A, self.registers.f.c),
+            OP::RLCA => self.shift_left(R8::A, self.read_r8(R8::A) & (1 << 7) != 0),
+            OP::RR(r8) => self.shift_right(r8, self.registers.f.c),
+            OP::RRC(r8) => self.shift_right(r8, self.read_r8(r8) & 1 != 0),
+            OP::SRA(r8) => self.shift_right(r8, self.read_r8(r8) & (1 << 7) != 0),
+            OP::SRL(r8) => self.shift_right(r8, false),
+            OP::RRA => self.shift_right(R8::A, self.registers.f.c),
+            OP::RRCA => self.shift_right(R8::A, self.read_r8(R8::A) & 1 != 0),
 
             OP::JR(condition) => {
                 if self.check_branch_condition(condition) {
@@ -148,6 +261,13 @@ impl CPU {
                     instr.cycles += 4;
                 }
             }
+            OP::JP(condition) => {
+                if self.check_branch_condition(condition) {
+                    next_pc = self.next_word();
+                    instr.cycles += 12;
+                }
+            }
+            OP::JPHL => next_pc = self.read_word(Word::HL),
             OP::CALL(condition) => {
                 if self.check_branch_condition(condition) {
                     self.push_word(next_pc);
@@ -155,10 +275,20 @@ impl CPU {
                     instr.cycles += 12;
                 }
             }
+            OP::RET(condition) => {
+                if self.check_branch_condition(condition) {
+                    next_pc = self.pop_word();
+                    instr.cycles += 12;
+                }
+            }
 
             OP::PUSH(push_pop_target) => self.push_word(self.read_push_pop(push_pop_target)),
+            OP::POP(push_pop_target) => {
+                let val = self.pop_word();
+                self.write_push_pop(push_pop_target, val);
+            }
 
-            OP::NOP => (),
+            OP::NOP | OP::DI => (),
             _ => bail!("Unimplemented Instruction: {:?}", instr.op),
         };
         Ok(next_pc)
@@ -194,6 +324,20 @@ impl CPU {
         self.bus.read_word(self.pc + 1)
     }
 
+    fn shift_left(&mut self, r8: R8, bit: bool) {
+        let val = self.read_r8(r8);
+        let res = (val << 1) | (bit as u8);
+        self.set_flags(res == 0, false, false, val & (1 << 7) != 0);
+        self.write_r8(r8, res);
+    }
+
+    fn shift_right(&mut self, r8: R8, bit: bool) {
+        let val = self.read_r8(r8);
+        let res = (val >> 1) | ((bit as u8) << 7);
+        self.set_flags(res == 0, false, false, val & 1 != 0);
+        self.write_r8(r8, res);
+    }
+
     fn check_branch_condition(&self, condition: BranchCondition) -> bool {
         match condition {
             BranchCondition::NotZero => !self.read_flag(Flag::Z),
@@ -212,6 +356,13 @@ impl CPU {
             Flag::H => f.h,
             Flag::C => f.c,
         }
+    }
+
+    fn set_flags(&mut self, z: bool, n: bool, h: bool, c: bool) {
+        self.registers.f.z = z;
+        self.registers.f.n = n;
+        self.registers.f.h = h;
+        self.registers.f.c = c;
     }
 
     fn read_r8(&self, r8: R8) -> u8 {
@@ -292,7 +443,7 @@ impl CPU {
         }
     }
 
-    fn read_arith_type(&self, arith_type: ArithType) -> u8 {
+    fn read_arith(&self, arith_type: ArithType) -> u8 {
         match arith_type {
             ArithType::R8(r8) => self.read_r8(r8),
             ArithType::Imm8 => self.next_byte(),
@@ -371,5 +522,10 @@ impl MemoryBus {
 
     fn read_word(&self, addr: u16) -> u16 {
         ((self.memory[addr as usize + 1] as u16) << 8) | (self.memory[addr as usize] as u16)
+    }
+
+    fn write_word(&mut self, addr: u16, val: u16) {
+        self.memory[addr as usize] = val as u8;
+        self.memory[addr as usize + 1] = (val >> 8) as u8;
     }
 }

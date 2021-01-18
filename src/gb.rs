@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
 
 use crate::cpu::*;
 
@@ -9,12 +8,14 @@ pub struct GameBoy {
 }
 
 impl GameBoy {
-    pub fn new() -> Result<Self> {
-        let bootrom_path = Path::new("dmg_boot.bin");
+    pub fn new(bootrom_path: &str, cartridge_path: &str) -> Result<Self> {
         let bootrom = fs::read(bootrom_path)
-            .with_context(|| format!("Couldn't read file `{}`", bootrom_path.to_str().unwrap()))?;
+            .with_context(|| format!("Couldn't read bootrom `{}`", bootrom_path))?;
+        let cartridge = fs::read(cartridge_path)
+            .with_context(|| format!("Couldn't read cartridge `{}`", cartridge_path))?;
+
         let gb = GameBoy {
-            cpu: CPU::new(bootrom),
+            cpu: CPU::new(bootrom, cartridge, true),
         };
         Ok(gb)
     }
