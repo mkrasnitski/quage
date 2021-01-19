@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use anyhow::{anyhow, bail, Result};
 use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
@@ -62,7 +61,7 @@ pub enum BitPosition {
     Seven = 7,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum LDType {
     // 92 total LD instrs
     MoveByte(R8, R8),   // (63) LD r, r
@@ -80,7 +79,7 @@ pub enum LDType {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum ArithType {
+pub enum ALUType {
     R8(R8),
     Imm8,
 }
@@ -95,15 +94,17 @@ pub enum IncDecTarget {
 pub enum OP {
     LD(LDType),
 
-    AND(ArithType),
-    OR(ArithType),
-    XOR(ArithType),
-    ADD(ArithType),
-    ADC(ArithType),
+    AND(ALUType),
+    OR(ALUType),
+    XOR(ALUType),
+    ADD(ALUType),
+    ADC(ALUType),
     ADDHL(Word),
-    SUB(ArithType),
-    SBC(ArithType),
-    CP(ArithType),
+    ADDSPi8,
+    SUB(ALUType),
+    SBC(ALUType),
+    CP(ALUType),
+    DAA,
     CPL,
     SCF,
     CCF,
@@ -132,7 +133,9 @@ pub enum OP {
     JP(BranchCondition),
     JPHL,
     CALL(BranchCondition),
+    RST(u16),
     RET(BranchCondition),
+    RETI,
 
     PUSH(PushPopTarget),
     POP(PushPopTarget),
@@ -140,86 +143,79 @@ pub enum OP {
     NOP,
     DI,
     EI,
+    STOP,
+    HALT,
 }
 
 impl OP {
     pub fn from_byte(byte: u8) -> Result<Self> {
-        let _g1 = byte >> 6;
-        let g2 = (byte >> 3) & 0b111;
-        let g3 = byte & 0b111;
+        let b1 = (byte >> 3) & 0b111;
+        let b2 = byte & 0b111;
+        let w = OP::decode_word(b1 >> 1)?;
+        let ind = OP::decode_indirect(b1 >> 1)?;
+        let r81 = OP::decode_r8(b1)?;
+        let r82 = OP::decode_r8(b2)?;
+        let branch = OP::decode_branch(b1 & 0b11)?;
+        let push_pop = OP::decode_push_pop(b1 >> 1)?;
         let op = match byte {
-            0x01 | 0x11 | 0x21 | 0x31 => OP::LD(LDType::WordImm(OP::decode_word(g2 >> 1)?)),
-            0x02 | 0x12 | 0x22 | 0x32 => OP::LD(LDType::IndFromA(OP::decode_indirect(g2 >> 1)?)),
-            0x03 | 0x13 | 0x23 | 0x33 => OP::INC(IncDecTarget::Word(OP::decode_word(g2 >> 1)?)),
-            0x04 | 0x14 | 0x24 | 0x34 | 0x0c | 0x1c | 0x2c | 0x3c => {
-                OP::INC(IncDecTarget::R8(OP::decode_r8(g2)?))
+            0x01 | 0x11 | 0x21 | 0x31 => OP::LD(LDType::WordImm(w)),
+            0x02 | 0x12 | 0x22 | 0x32 => OP::LD(LDType::IndFromA(ind)),
+            0x03 | 0x13 | 0x23 | 0x33 => OP::INC(IncDecTarget::Word(w)),
+            0x04 | 0x14 | 0x24 | 0x34 | 0x0c | 0x1c | 0x2c | 0x3c => OP::INC(IncDecTarget::R8(r81)),
+            0x05 | 0x15 | 0x25 | 0x35 | 0x0d | 0x1d | 0x2d | 0x3d => OP::DEC(IncDecTarget::R8(r81)),
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0e | 0x1e | 0x2e | 0x3e => OP::LD(LDType::ByteImm(r81)),
+            0x09 | 0x19 | 0x29 | 0x39 => OP::ADDHL(w),
+            0x0a | 0x1a | 0x2a | 0x3a => OP::LD(LDType::AFromInd(ind)),
+            0x0b | 0x1b | 0x2b | 0x3b => OP::DEC(IncDecTarget::Word(w)),
+            0x20 | 0x30 | 0x28 | 0x38 => OP::JR(branch),
+            0x40..=0x75 | 0x77..=0x7f => OP::LD(LDType::MoveByte(r81, r82)),
+            0x80..=0xbf => OP::decode_alu_op(b1, ALUType::R8(r82))?,
+            0xc0 | 0xd0 | 0xc8 | 0xd8 => OP::RET(branch),
+            0xc1 | 0xd1 | 0xe1 | 0xf1 => OP::POP(push_pop),
+            0xc2 | 0xd2 | 0xca | 0xda => OP::JP(branch),
+            0xc4 | 0xd4 | 0xcc | 0xdc => OP::CALL(branch),
+            0xc5 | 0xd5 | 0xe5 | 0xf5 => OP::PUSH(push_pop),
+            0xc6 | 0xd6 | 0xe6 | 0xf6 | 0xce | 0xde | 0xee | 0xfe => {
+                OP::decode_alu_op(b1, ALUType::Imm8)?
             }
-            0x05 | 0x15 | 0x25 | 0x35 | 0x0d | 0x1d | 0x2d | 0x3d => {
-                OP::DEC(IncDecTarget::R8(OP::decode_r8(g2)?))
+            0xc7 | 0xd7 | 0xe7 | 0xf7 | 0xcf | 0xdf | 0xef | 0xff => {
+                OP::RST(OP::verify_rst(b2 << 3)?)
             }
-            0x06 | 0x16 | 0x26 | 0x36 | 0x0e | 0x1e | 0x2e | 0x3e => {
-                OP::LD(LDType::ByteImm(OP::decode_r8(g2)?))
-            }
-            0x09 | 0x19 | 0x29 | 0x39 => OP::ADDHL(OP::decode_word(g2 >> 1)?),
-            0x0a | 0x1a | 0x2a | 0x3a => OP::LD(LDType::AFromInd(OP::decode_indirect(g2 >> 1)?)),
-            0x0b | 0x1b | 0x2b | 0x3b => OP::DEC(IncDecTarget::Word(OP::decode_word(g2 >> 1)?)),
-            0x20 | 0x30 | 0x28 | 0x38 => OP::JR(OP::decode_branch(g2 & 0b11)?),
-            0x40..=0x75 | 0x77..=0x7f => {
-                let dest = OP::decode_r8(g2)?;
-                let src = OP::decode_r8(g3)?;
-                OP::LD(LDType::MoveByte(dest, src))
-            }
-            0x80..=0x87 => OP::ADD(ArithType::R8(OP::decode_r8(g3)?)),
-            0x88..=0x8f => OP::ADC(ArithType::R8(OP::decode_r8(g3)?)),
-            0x90..=0x97 => OP::SUB(ArithType::R8(OP::decode_r8(g3)?)),
-            0x98..=0x9f => OP::SBC(ArithType::R8(OP::decode_r8(g3)?)),
-            0xa8..=0xaf => OP::XOR(ArithType::R8(OP::decode_r8(g3)?)),
-            0xa0..=0xa7 => OP::AND(ArithType::R8(OP::decode_r8(g3)?)),
-            0xb0..=0xb7 => OP::OR(ArithType::R8(OP::decode_r8(g3)?)),
-            0xb8..=0xbf => OP::CP(ArithType::R8(OP::decode_r8(g3)?)),
-            0xc0 | 0xd0 | 0xc8 | 0xd8 => OP::RET(OP::decode_branch(g2 & 0b11)?),
-            0xc1 | 0xd1 | 0xe1 | 0xf1 => OP::POP(OP::decode_push_pop(g2 >> 1)?),
-            0xc2 | 0xd2 | 0xca | 0xda => OP::JP(OP::decode_branch(g2 & 0b11)?),
-            0xc4 | 0xd4 | 0xcc | 0xdc => OP::CALL(OP::decode_branch(g2 & 0b11)?),
-            0xc5 | 0xd5 | 0xe5 | 0xf5 => OP::PUSH(OP::decode_push_pop(g2 >> 1)?),
 
             0x00 => OP::NOP,
             0x07 => OP::RLCA,
             0x08 => OP::LD(LDType::AddrFromSP),
+            0x10 => OP::STOP,
             0x0f => OP::RRCA,
             0x17 => OP::RLA,
             0x1f => OP::RRA,
             0x18 => OP::JR(BranchCondition::Always),
+            0x27 => OP::DAA,
             0x2f => OP::CPL,
             0x37 => OP::SCF,
             0x3f => OP::CCF,
+            0x76 => OP::HALT,
             0xc3 => OP::JP(BranchCondition::Always),
-            0xc6 => OP::ADD(ArithType::Imm8),
             0xc9 => OP::RET(BranchCondition::Always),
-            0xce => OP::ADC(ArithType::Imm8),
             0xcd => OP::CALL(BranchCondition::Always),
-            0xd6 => OP::SUB(ArithType::Imm8),
-            0xde => OP::SBC(ArithType::Imm8),
+            0xd9 => OP::RETI,
             0xe0 => OP::LD(LDType::ByteIndFromA),
             0xe2 => OP::LD(LDType::IndFromA(Indirect::CInd)),
-            0xe6 => OP::AND(ArithType::Imm8),
+            0xe8 => OP::ADDSPi8,
             0xe9 => OP::JPHL,
             0xea => OP::LD(LDType::AddrFromA),
-            0xee => OP::XOR(ArithType::Imm8),
             0xf0 => OP::LD(LDType::AFromByteInd),
             0xf2 => OP::LD(LDType::AFromInd(Indirect::CInd)),
             0xf3 => OP::DI,
-            0xf6 => OP::OR(ArithType::Imm8),
+            0xf8 => OP::LD(LDType::HLFromSPi8),
             0xf9 => OP::LD(LDType::SPFromHL),
             0xfa => OP::LD(LDType::AFromAddr),
             0xfb => OP::EI,
-            0xfe => OP::CP(ArithType::Imm8),
 
             0xcb => bail!("Somehow didn't catch prefix."),
             0xd3 | 0xdb | 0xdd | 0xe3 | 0xe4 | 0xeb | 0xec | 0xed | 0xf4 | 0xfc | 0xfd => {
                 bail!("Invalid opcode: {:02x}", byte)
             }
-            _ => bail!("Unrecognized opcode: {:02x}", byte),
         };
         Ok(op)
     }
@@ -241,6 +237,28 @@ impl OP {
             0xc0..=0xff => OP::SET(bit, r8),
         };
         Ok(op)
+    }
+
+    fn decode_alu_op(op: u8, arg: ALUType) -> Result<OP> {
+        let op = match op {
+            0 => OP::ADD(arg),
+            1 => OP::ADC(arg),
+            2 => OP::SUB(arg),
+            3 => OP::SBC(arg),
+            4 => OP::AND(arg),
+            5 => OP::XOR(arg),
+            6 => OP::OR(arg),
+            7 => OP::CP(arg),
+            _ => bail!("Invalid ALU op: {}", op),
+        };
+        Ok(op)
+    }
+
+    fn verify_rst(addr: u8) -> Result<u16> {
+        match addr {
+            0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 => Ok(addr as u16),
+            _ => bail!("Invalid RST addr: {}", addr),
+        }
     }
 
     fn decode_r8(val: u8) -> Result<R8> {
@@ -295,6 +313,7 @@ impl Instruction {
     fn get_len_cycles(op: &OP) -> (u16, u64) {
         match op {
             OP::NOP
+            | OP::HALT
             | OP::DI
             | OP::EI
             | OP::RLA
@@ -302,13 +321,16 @@ impl Instruction {
             | OP::RLCA
             | OP::RRCA
             | OP::JPHL
+            | OP::DAA
             | OP::CPL
             | OP::SCF
             | OP::CCF => (1, 4),
             OP::ADDHL(_) => (1, 8),
             OP::POP(_) => (1, 12),
-            OP::PUSH(_) => (1, 16),
+            OP::PUSH(_) | OP::RST(_) | OP::RETI => (1, 16),
+            OP::STOP => (2, 4),
             OP::JR(_) => (2, 8),
+            OP::ADDSPi8 => (2, 16),
             OP::JP(_) | OP::CALL(_) => (3, 12),
             OP::RET(condition) => match condition {
                 BranchCondition::Always => (1, 4),
@@ -331,19 +353,19 @@ impl Instruction {
                 R8::HLInd => (2, 16),
                 _ => (2, 8),
             },
-            OP::XOR(arith)
-            | OP::AND(arith)
-            | OP::OR(arith)
-            | OP::ADD(arith)
-            | OP::ADC(arith)
-            | OP::SUB(arith)
-            | OP::SBC(arith)
-            | OP::CP(arith) => match arith {
-                ArithType::R8(r8) => match r8 {
+            OP::XOR(alu)
+            | OP::AND(alu)
+            | OP::OR(alu)
+            | OP::ADD(alu)
+            | OP::ADC(alu)
+            | OP::SUB(alu)
+            | OP::SBC(alu)
+            | OP::CP(alu) => match alu {
+                ALUType::R8(r8) => match r8 {
                     R8::HLInd => (1, 8),
                     _ => (1, 4),
                 },
-                ArithType::Imm8 => (2, 8),
+                ALUType::Imm8 => (2, 8),
             },
             OP::INC(id_target) | OP::DEC(id_target) => match id_target {
                 IncDecTarget::Word(_) => (1, 8),

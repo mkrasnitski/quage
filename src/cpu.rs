@@ -16,6 +16,7 @@ pub struct CPU {
     pc: u16,
     sp: u16,
     cycles: u64,
+    int_enabled: bool,
     registers: Registers,
     bus: MemoryBus,
 }
@@ -26,6 +27,7 @@ impl CPU {
             pc: 0,
             sp: 0,
             cycles: 0,
+            int_enabled: true,
             registers: Registers {
                 a: 0,
                 b: 0,
@@ -132,53 +134,60 @@ impl CPU {
     fn execute(&mut self, instr: &mut Instruction) -> Result<u16> {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
-            OP::LD(LDType::ByteImm(r8)) => self.write_r8(r8, self.next_byte()),
-            OP::LD(LDType::WordImm(word)) => self.write_word(word, self.next_word()),
-            OP::LD(LDType::IndFromA(ind)) => self.write_ind(ind, self.read_r8(R8::A)),
-            OP::LD(LDType::AFromInd(ind)) => {
-                let res = self.read_ind(ind);
-                self.write_r8(R8::A, res);
-            }
-            OP::LD(LDType::MoveByte(dest, src)) => self.write_r8(dest, self.read_r8(src)),
-            OP::LD(LDType::ByteIndFromA) => self
-                .bus
-                .write_byte(0xFF00 + self.next_byte() as u16, self.read_r8(R8::A)),
-            OP::LD(LDType::AFromByteInd) => {
-                self.write_r8(R8::A, self.bus.read_byte(0xFF00 + self.next_byte() as u16))
-            }
-            OP::LD(LDType::AddrFromA) => self.bus.write_byte(self.next_word(), self.read_r8(R8::A)),
-            OP::LD(LDType::AFromAddr) => self.write_r8(R8::A, self.bus.read_byte(self.next_word())),
-            OP::LD(LDType::SPFromHL) => self.write_word(Word::SP, self.read_word(Word::HL)),
-            OP::LD(LDType::AddrFromSP) => self
-                .bus
-                .write_word(self.next_word(), self.read_word(Word::SP)),
+            OP::LD(ld_type) => match ld_type {
+                LDType::ByteImm(r8) => self.write_r8(r8, self.next_byte()),
+                LDType::WordImm(word) => self.write_word(word, self.next_word()),
+                LDType::IndFromA(ind) => self.write_ind(ind, self.read_r8(R8::A)),
+                LDType::AFromInd(ind) => {
+                    let res = self.read_ind(ind);
+                    self.write_r8(R8::A, res);
+                }
+                LDType::MoveByte(dest, src) => self.write_r8(dest, self.read_r8(src)),
+                LDType::ByteIndFromA => self
+                    .bus
+                    .write_byte(0xFF00 + self.next_byte() as u16, self.read_r8(R8::A)),
+                LDType::AFromByteInd => {
+                    self.write_r8(R8::A, self.bus.read_byte(0xFF00 + self.next_byte() as u16))
+                }
+                LDType::AddrFromA => self.bus.write_byte(self.next_word(), self.read_r8(R8::A)),
+                LDType::AFromAddr => self.write_r8(R8::A, self.bus.read_byte(self.next_word())),
+                LDType::SPFromHL => self.write_word(Word::SP, self.read_word(Word::HL)),
+                LDType::AddrFromSP => self
+                    .bus
+                    .write_word(self.next_word(), self.read_word(Word::SP)),
+                LDType::HLFromSPi8 => {
+                    let (val, h, c) = self.sp.overflowing_hc_add_i8(self.next_byte() as i8);
+                    self.set_flags(false, false, h, c);
+                    self.write_word(Word::HL, val);
+                }
+            },
 
-            OP::AND(arith_type) => {
-                let val = self.registers.a & self.read_arith(arith_type);
+            OP::AND(alu_type) => {
+                let val = self.registers.a & self.read_alu(alu_type);
                 self.set_flags(val == 0, false, true, false);
                 self.write_r8(R8::A, val);
             }
-            OP::OR(arith_type) => {
-                let val = self.registers.a | self.read_arith(arith_type);
+            OP::OR(alu_type) => {
+                let val = self.registers.a | self.read_alu(alu_type);
                 self.set_flags(val == 0, false, false, false);
                 self.write_r8(R8::A, val);
             }
-            OP::XOR(arith_type) => {
-                let val = self.registers.a ^ self.read_arith(arith_type);
+            OP::XOR(alu_type) => {
+                let val = self.registers.a ^ self.read_alu(alu_type);
                 self.set_flags(val == 0, false, false, false);
                 self.write_r8(R8::A, val);
             }
-            OP::ADD(arith_type) => {
+            OP::ADD(alu_type) => {
                 let (val, h, c) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_add(self.read_arith(arith_type));
+                    .overflowing_hc_add(self.read_alu(alu_type));
                 self.set_flags(val == 0, false, h, c);
                 self.write_r8(R8::A, val);
             }
-            OP::ADC(arith_type) => {
+            OP::ADC(alu_type) => {
                 let (val, h1, c1) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_add(self.read_arith(arith_type));
+                    .overflowing_hc_add(self.read_alu(alu_type));
                 let (val, h2, c2) = val.overflowing_hc_add(self.registers.f.c as u8);
                 self.set_flags(val == 0, false, h1 | h2, c1 | c2);
                 self.write_r8(R8::A, val);
@@ -190,30 +199,28 @@ impl CPU {
                 self.set_flags(self.registers.f.z, false, h, c);
                 self.write_word(Word::HL, val);
             }
-            OP::SUB(arith_type) | OP::CP(arith_type) => {
+            OP::ADDSPi8 => {
+                let (val, h, c) = self.sp.overflowing_hc_add_i8(self.next_byte() as i8);
+                self.set_flags(false, false, h, c);
+                self.sp = val;
+            }
+            OP::SUB(alu_type) | OP::CP(alu_type) => {
                 let (val, h, c) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_sub(self.read_arith(arith_type));
+                    .overflowing_hc_sub(self.read_alu(alu_type));
                 self.set_flags(val == 0, true, h, c);
                 if let OP::SUB(_) = instr.op {
                     self.write_r8(R8::A, val);
                 }
             }
-            OP::SBC(arith_type) => {
+            OP::SBC(alu_type) => {
                 let (val, h1, c1) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_sub(self.read_arith(arith_type));
+                    .overflowing_hc_sub(self.read_alu(alu_type));
                 let (val, h2, c2) = val.overflowing_hc_sub(self.registers.f.c as u8);
                 self.set_flags(val == 0, true, h1 | h2, c1 | c2);
                 self.write_r8(R8::A, val);
             }
-            OP::CPL => {
-                self.set_flags(self.registers.f.z, true, true, self.registers.f.c);
-                self.write_r8(R8::A, self.read_r8(R8::A) ^ 0xFF);
-            }
-            OP::SCF => self.set_flags(self.registers.f.z, false, false, true),
-            OP::CCF => self.set_flags(self.registers.f.z, false, false, !self.registers.f.c),
-
             OP::INC(inc_dec) => match inc_dec {
                 IncDecTarget::R8(r8) => {
                     let (val, h, _) = self.read_r8(r8).overflowing_hc_add(1);
@@ -230,6 +237,12 @@ impl CPU {
                 }
                 IncDecTarget::Word(w) => self.write_word(w, self.read_word(w).wrapping_sub(1)),
             },
+            OP::CPL => {
+                self.set_flags(self.registers.f.z, true, true, self.registers.f.c);
+                self.write_r8(R8::A, self.read_r8(R8::A) ^ 0xFF);
+            }
+            OP::SCF => self.set_flags(self.registers.f.z, false, false, true),
+            OP::CCF => self.set_flags(self.registers.f.z, false, false, !self.registers.f.c),
 
             OP::BIT(bit, r8) => {
                 let res = self.read_r8(r8);
@@ -237,23 +250,60 @@ impl CPU {
                 self.set_flags((res & (1 << bit)) == 0, false, true, self.registers.f.c);
             }
             OP::SWAP(r8) => {
-                let val = self.read_r8(r8);
-                self.write_r8(r8, ((val & 0x0f) << 4) | ((val & 0xf0) >> 4));
+                let val = self.read_r8(r8).rotate_right(4);
+                self.write_r8(r8, val);
+                self.set_flags(val == 0, false, false, false);
             }
             OP::SET(bit, r8) => self.write_r8(r8, self.read_r8(r8) | (1 << (bit as u8))),
             OP::RES(bit, r8) => self.write_r8(r8, self.read_r8(r8) & !(1 << (bit as u8))),
-
             OP::RL(r8) => self.shift_left(r8, self.registers.f.c),
             OP::RLC(r8) => self.shift_left(r8, self.read_r8(r8) & (1 << 7) != 0),
             OP::SLA(r8) => self.shift_left(r8, false),
-            OP::RLA => self.shift_left(R8::A, self.registers.f.c),
-            OP::RLCA => self.shift_left(R8::A, self.read_r8(R8::A) & (1 << 7) != 0),
             OP::RR(r8) => self.shift_right(r8, self.registers.f.c),
             OP::RRC(r8) => self.shift_right(r8, self.read_r8(r8) & 1 != 0),
             OP::SRA(r8) => self.shift_right(r8, self.read_r8(r8) & (1 << 7) != 0),
             OP::SRL(r8) => self.shift_right(r8, false),
-            OP::RRA => self.shift_right(R8::A, self.registers.f.c),
-            OP::RRCA => self.shift_right(R8::A, self.read_r8(R8::A) & 1 != 0),
+            OP::RLA => {
+                self.shift_left(R8::A, self.registers.f.c);
+                self.registers.f.z = false;
+            }
+            OP::RLCA => {
+                self.shift_left(R8::A, self.read_r8(R8::A) & (1 << 7) != 0);
+                self.registers.f.z = false;
+            }
+            OP::RRA => {
+                self.shift_right(R8::A, self.registers.f.c);
+                self.registers.f.z = false;
+            }
+            OP::RRCA => {
+                self.shift_right(R8::A, self.read_r8(R8::A) & 1 != 0);
+                self.registers.f.z = false;
+            }
+            OP::DAA => {
+                let mut val = self.registers.a;
+                let mut c = self.registers.f.c;
+                // addition
+                if !self.registers.f.n {
+                    if self.registers.f.c || val > 0x99 {
+                        c = true;
+                        val = val.wrapping_add(0x60);
+                    }
+                    if self.registers.f.h || (val & 0xf) > 0x9 {
+                        val = val.wrapping_add(0x06);
+                    }
+                }
+                // subtraction
+                else {
+                    if self.registers.f.c {
+                        val = val.wrapping_sub(0x60);
+                    }
+                    if self.registers.f.h {
+                        val = val.wrapping_sub(0x06);
+                    }
+                };
+                self.write_r8(R8::A, val);
+                self.set_flags(val == 0, self.registers.f.n, false, c);
+            }
 
             OP::JR(condition) => {
                 if self.check_branch_condition(condition) {
@@ -275,11 +325,19 @@ impl CPU {
                     instr.cycles += 12;
                 }
             }
+            OP::RST(addr) => {
+                self.push_word(next_pc);
+                next_pc = addr;
+            }
             OP::RET(condition) => {
                 if self.check_branch_condition(condition) {
                     next_pc = self.pop_word();
                     instr.cycles += 12;
                 }
+            }
+            OP::RETI => {
+                self.int_enabled = true;
+                next_pc = self.pop_word();
             }
 
             OP::PUSH(push_pop_target) => self.push_word(self.read_push_pop(push_pop_target)),
@@ -288,7 +346,10 @@ impl CPU {
                 self.write_push_pop(push_pop_target, val);
             }
 
-            OP::NOP | OP::DI => (),
+            OP::NOP => (),
+            OP::DI => self.int_enabled = false,
+            OP::EI => self.int_enabled = true,
+
             _ => bail!("Unimplemented Instruction: {:?}", instr.op),
         };
         Ok(next_pc)
@@ -443,10 +504,10 @@ impl CPU {
         }
     }
 
-    fn read_arith(&self, arith_type: ArithType) -> u8 {
-        match arith_type {
-            ArithType::R8(r8) => self.read_r8(r8),
-            ArithType::Imm8 => self.next_byte(),
+    fn read_alu(&self, alu_type: ALUType) -> u8 {
+        match alu_type {
+            ALUType::R8(r8) => self.read_r8(r8),
+            ALUType::Imm8 => self.next_byte(),
         }
     }
 
