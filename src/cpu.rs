@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#![allow(dead_code, non_snake_case)]
 use anyhow::{bail, Result};
 
 use crate::flags::*;
@@ -16,7 +16,9 @@ pub struct CPU {
     pc: u16,
     sp: u16,
     cycles: u64,
-    int_enabled: bool,
+    queue_ime: bool,
+    ime: bool,
+    halted: bool,
     registers: Registers,
     bus: MemoryBus,
 }
@@ -27,7 +29,6 @@ impl CPU {
             pc: 0,
             sp: 0,
             cycles: 0,
-            int_enabled: true,
             registers: Registers {
                 a: 0,
                 b: 0,
@@ -43,11 +44,16 @@ impl CPU {
                 h: 0,
                 l: 0,
             },
+            queue_ime: false,
+            ime: false,
+            halted: false,
             bus: MemoryBus {
                 memory: [0; 0x10000],
+                bootrom: [0; 0x100],
                 gpu: GPU {},
             },
         };
+        cpu.bus.bootrom.copy_from_slice(&bootrom);
         cpu.bus.memory[..cartridge.len()].copy_from_slice(&cartridge);
         if skip_bootrom {
             cpu.registers.a = 0x01;
@@ -76,9 +82,8 @@ impl CPU {
             cpu.bus.memory[0xff47] = 0xfc;
             cpu.bus.memory[0xff48] = 0xff;
             cpu.bus.memory[0xff49] = 0xff;
+            cpu.bus.memory[0xff50] = 0x01;
             cpu.pc = 0x100;
-        } else {
-            cpu.bus.memory[..bootrom.len()].copy_from_slice(&bootrom);
         }
         cpu
     }
@@ -86,10 +91,11 @@ impl CPU {
     fn state(&self) -> String {
         let r = &self.registers;
         format!(
-            "{:04x} {: >2} {:04x} {:04b} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
+            "{:04x} {: >2} {:04x} {} {:04b} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
             self.pc,
             self.cycles,
             self.sp,
+            self.ime,
             u8::from(r.f) >> 4,
             r.a,
             r.b,
@@ -102,38 +108,102 @@ impl CPU {
     }
 
     pub fn step(&mut self) -> Result<()> {
-        let byte = self.bus.read_byte(self.pc);
-        let (byte, prefix) = if byte == 0xcb {
-            (self.next_byte(), true)
+        self.check_interrupts();
+        let cycles_passed = if !self.halted {
+            let byte = self.bus.read_byte(self.pc);
+            let (byte, prefix) = if byte == 0xcb {
+                (self.next_byte(), true)
+            } else {
+                (byte, false)
+            };
+            let mut instr = Instruction::from_byte(byte, prefix)?;
+            let state = format!(
+                "{} {: >8}",
+                self.state(),
+                self.bus
+                    .read_bytes(self.pc, instr.len)
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            );
+            self.pc = self.execute(&mut instr)?;
+            if DEBUG {
+                println!("{} -> {}", state, instr);
+            }
+            if self.bus.read_byte(0xFF02) == 0x81 {
+                let c = self.bus.read_byte(0xFF01) as char;
+                self.bus.write_byte(0xFF02, 0x00);
+                print!("{}", c);
+                std::io::stdout().flush().unwrap();
+            }
+            instr.cycles
         } else {
-            (byte, false)
+            4
         };
-        let mut instr = Instruction::from_byte(byte, prefix)?;
-        let bytes = self
-            .bus
-            .read_bytes(self.pc, instr.len)
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<Vec<String>>()
-            .join(" ");
-        let state = format!("{} {: >8}", self.state(), bytes);
-        self.pc = self.execute(&mut instr)?;
-        if DEBUG {
-            println!("{} -> {}", state, instr);
-        }
-        if self.bus.read_byte(0xFF02) == 0x81 {
-            let c = self.bus.read_byte(0xFF01) as char;
-            self.bus.write_byte(0xFF02, 0x00);
-            print!("{}", c);
-            std::io::stdout().flush().unwrap();
-        }
-        self.cycles += instr.cycles;
+        self.increment_timers(cycles_passed);
+        self.cycles += cycles_passed;
         Ok(())
+    }
+
+    fn check_interrupts(&mut self) {
+        let IE = self.bus.read_byte(0xFFFF);
+        let IF = self.bus.read_byte(0xFF0F);
+        for i in 0..5 {
+            let mask = 1u8 << i;
+            if IE & IF & mask != 0 {
+                self.halted = false;
+                if self.ime {
+                    self.bus.write_byte(0xFF0F, IF ^ mask);
+                    self.push_word(self.pc);
+                    self.pc = (i << 3) + 0x40;
+                    break;
+                }
+            }
+        }
+        if self.queue_ime {
+            self.ime = true;
+            self.queue_ime = false;
+        }
+    }
+
+    fn increment_timers(&mut self, cycles_passed: u64) {
+        let total_cycles = self.cycles + cycles_passed;
+        if total_cycles / 256 > self.cycles / 256 {
+            self.bus
+                .write_byte(0xFF04, self.bus.read_byte(0xFF04).wrapping_add(1));
+        }
+        let TAC = self.bus.read_byte(0xFF07);
+        if TAC & 0b100 != 0 {
+            let clock = match TAC & 0b11 {
+                0 => 1024,
+                1 => 16,
+                2 => 64,
+                3 => 256,
+                _ => panic!(""),
+            };
+
+            if total_cycles / clock > self.cycles / clock {
+                let (TIMA, c) = self.bus.read_byte(0xFF05).overflowing_add(1);
+                if c {
+                    self.bus.write_byte(0xFF05, self.bus.read_byte(0xFF06));
+                    self.bus
+                        .write_byte(0xFF0F, self.bus.read_byte(0xFF0F) | 0b100);
+                } else {
+                    self.bus.write_byte(0xFF05, TIMA);
+                }
+            }
+        }
     }
 
     fn execute(&mut self, instr: &mut Instruction) -> Result<u16> {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
+            OP::NOP => (),
+            OP::HALT | OP::STOP => self.halted = true,
+            OP::DI => self.ime = false,
+            OP::EI => self.queue_ime = true,
+
             OP::LD(ld_type) => match ld_type {
                 LDType::ByteImm(r8) => self.write_r8(r8, self.next_byte()),
                 LDType::WordImm(word) => self.write_word(word, self.next_word()),
@@ -336,8 +406,9 @@ impl CPU {
                 }
             }
             OP::RETI => {
-                self.int_enabled = true;
+                self.ime = true;
                 next_pc = self.pop_word();
+                println!("RETI");
             }
 
             OP::PUSH(push_pop_target) => self.push_word(self.read_push_pop(push_pop_target)),
@@ -345,10 +416,6 @@ impl CPU {
                 let val = self.pop_word();
                 self.write_push_pop(push_pop_target, val);
             }
-
-            OP::NOP => (),
-            OP::DI => self.int_enabled = false,
-            OP::EI => self.int_enabled = true,
 
             _ => bail!("Unimplemented Instruction: {:?}", instr.op),
         };
@@ -565,28 +632,38 @@ pub struct Registers {
 
 struct MemoryBus {
     memory: [u8; 0x10000],
+    bootrom: [u8; 0x100],
     gpu: GPU,
 }
 
 impl MemoryBus {
     fn read_byte(&self, addr: u16) -> u8 {
+        if addr < 0x100 && self.memory[0xff50] == 0 {
+            return self.bootrom[addr as usize];
+        }
         self.memory[addr as usize]
     }
 
     fn write_byte(&mut self, addr: u16, val: u8) {
-        self.memory[addr as usize] = val
+        if addr >= 0x8000 {
+            self.memory[addr as usize] = val
+        }
     }
 
-    fn read_bytes(&self, addr: u16, len: u16) -> &[u8] {
-        &self.memory[addr as usize..addr as usize + len as usize]
+    fn read_bytes(&self, addr: u16, len: u16) -> Vec<u8> {
+        let mut slice: Vec<u8> = vec![0; len as usize];
+        for i in 0..len {
+            slice[i as usize] = self.read_byte(addr + i);
+        }
+        slice
     }
 
     fn read_word(&self, addr: u16) -> u16 {
-        ((self.memory[addr as usize + 1] as u16) << 8) | (self.memory[addr as usize] as u16)
+        ((self.read_byte(addr + 1) as u16) << 8) | (self.read_byte(addr) as u16)
     }
 
     fn write_word(&mut self, addr: u16, val: u16) {
-        self.memory[addr as usize] = val as u8;
-        self.memory[addr as usize + 1] = (val >> 8) as u8;
+        self.write_byte(addr, val as u8);
+        self.write_byte(addr + 1, (val >> 8) as u8)
     }
 }
