@@ -15,7 +15,7 @@ impl GameBoy {
             .with_context(|| format!("Couldn't read cartridge `{}`", cartridge_path))?;
 
         let gb = GameBoy {
-            cpu: CPU::new(bootrom, cartridge, true),
+            cpu: CPU::new(bootrom, cartridge, true)?,
         };
         Ok(gb)
     }

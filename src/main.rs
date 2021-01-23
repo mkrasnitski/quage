@@ -1,3 +1,4 @@
+mod bus;
 mod cpu;
 mod flags;
 mod gb;
@@ -8,9 +9,9 @@ use std::env;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        bail!("Please provide a bootrom and cartridge.")
+    if args.len() < 2 {
+        bail!("Please provide a cartridge.")
     }
-    let mut gb = gb::GameBoy::new(&args[1], &args[2])?;
+    let mut gb = gb::GameBoy::new("dmg_boot.bin", &args[1])?;
     gb.run()
 }

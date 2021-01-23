@@ -157,7 +157,7 @@ impl OP {
         let r82 = OP::decode_r8(b2)?;
         let branch = OP::decode_branch(b1 & 0b11)?;
         let push_pop = OP::decode_push_pop(b1 >> 1)?;
-        let op = match byte {
+        Ok(match byte {
             0x01 | 0x11 | 0x21 | 0x31 => OP::LD(LDType::WordImm(w)),
             0x02 | 0x12 | 0x22 | 0x32 => OP::LD(LDType::IndFromA(ind)),
             0x03 | 0x13 | 0x23 | 0x33 => OP::INC(IncDecTarget::Word(w)),
@@ -216,14 +216,13 @@ impl OP {
             0xd3 | 0xdb | 0xdd | 0xe3 | 0xe4 | 0xeb | 0xec | 0xed | 0xf4 | 0xfc | 0xfd => {
                 bail!("Invalid opcode: {:02x}", byte)
             }
-        };
-        Ok(op)
+        })
     }
 
     pub fn from_prefix_byte(byte: u8) -> Result<Self> {
         let bit = OP::decode_bit((byte >> 3) & 0b111)?;
         let r8 = OP::decode_r8(byte & 0b111)?;
-        let op = match byte {
+        Ok(match byte {
             0x00..=0x07 => OP::RLC(r8),
             0x08..=0x0f => OP::RRC(r8),
             0x10..=0x17 => OP::RL(r8),
@@ -235,12 +234,11 @@ impl OP {
             0x40..=0x7f => OP::BIT(bit, r8),
             0x80..=0xbf => OP::RES(bit, r8),
             0xc0..=0xff => OP::SET(bit, r8),
-        };
-        Ok(op)
+        })
     }
 
     fn decode_alu_op(op: u8, arg: ALUType) -> Result<OP> {
-        let op = match op {
+        Ok(match op {
             0 => OP::ADD(arg),
             1 => OP::ADC(arg),
             2 => OP::SUB(arg),
@@ -250,8 +248,7 @@ impl OP {
             6 => OP::OR(arg),
             7 => OP::CP(arg),
             _ => bail!("Invalid ALU op: {}", op),
-        };
-        Ok(op)
+        })
     }
 
     fn verify_rst(addr: u8) -> Result<u16> {

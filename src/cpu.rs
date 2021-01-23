@@ -1,8 +1,8 @@
 #![allow(dead_code, non_snake_case)]
-use anyhow::{bail, Result};
+use anyhow::Result;
 
+use crate::bus::*;
 use crate::flags::*;
-use crate::gpu::*;
 use crate::instruction::*;
 
 use std::io::Write;
@@ -10,6 +10,37 @@ const DEBUG: bool = false;
 
 fn signed_offset_u16(x: u16, y: u8) -> u16 {
     (x as i16 + y as i8 as i16) as u16
+}
+
+pub struct Registers {
+    a: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+    e: u8,
+    f: Flags,
+    h: u8,
+    l: u8,
+}
+
+impl Registers {
+    fn new() -> Self {
+        Registers {
+            a: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+            e: 0,
+            f: Flags {
+                z: false,
+                n: false,
+                h: false,
+                c: false,
+            },
+            h: 0,
+            l: 0,
+        }
+    }
 }
 
 pub struct CPU {
@@ -24,37 +55,17 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, skip_bootrom: bool) -> Self {
+    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, skip_bootrom: bool) -> Result<Self> {
         let mut cpu = CPU {
             pc: 0,
             sp: 0,
             cycles: 0,
-            registers: Registers {
-                a: 0,
-                b: 0,
-                c: 0,
-                d: 0,
-                e: 0,
-                f: Flags {
-                    z: false,
-                    n: false,
-                    h: false,
-                    c: false,
-                },
-                h: 0,
-                l: 0,
-            },
             queue_ime: false,
             ime: false,
             halted: false,
-            bus: MemoryBus {
-                memory: [0; 0x10000],
-                bootrom: [0; 0x100],
-                gpu: GPU {},
-            },
+            registers: Registers::new(),
+            bus: MemoryBus::new(bootrom, cartridge)?,
         };
-        cpu.bus.bootrom.copy_from_slice(&bootrom);
-        cpu.bus.memory[..cartridge.len()].copy_from_slice(&cartridge);
         if skip_bootrom {
             cpu.registers.a = 0x01;
             cpu.registers.c = 0x13;
@@ -85,7 +96,7 @@ impl CPU {
             cpu.bus.memory[0xff50] = 0x01;
             cpu.pc = 0x100;
         }
-        cpu
+        Ok(cpu)
     }
 
     fn state(&self) -> String {
@@ -169,9 +180,10 @@ impl CPU {
 
     fn increment_timers(&mut self, cycles_passed: u64) {
         let total_cycles = self.cycles + cycles_passed;
-        if total_cycles / 256 > self.cycles / 256 {
+        let div_clocks = (total_cycles / 256 - self.cycles / 256) as u8;
+        if div_clocks > 0 {
             self.bus
-                .write_byte(0xFF04, self.bus.read_byte(0xFF04).wrapping_add(1));
+                .write_byte(0xFF04, self.bus.read_byte(0xFF04).wrapping_add(div_clocks));
         }
         let TAC = self.bus.read_byte(0xFF07);
         if TAC & 0b100 != 0 {
@@ -180,11 +192,12 @@ impl CPU {
                 1 => 16,
                 2 => 64,
                 3 => 256,
-                _ => panic!(""),
+                _ => unreachable!(),
             };
 
-            if total_cycles / clock > self.cycles / clock {
-                let (TIMA, c) = self.bus.read_byte(0xFF05).overflowing_add(1);
+            let timer_clocks = (total_cycles / clock - self.cycles / clock) as u8;
+            if timer_clocks > 0 {
+                let (TIMA, c) = self.bus.read_byte(0xFF05).overflowing_add(timer_clocks);
                 if c {
                     self.bus.write_byte(0xFF05, self.bus.read_byte(0xFF06));
                     self.bus
@@ -200,7 +213,8 @@ impl CPU {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
             OP::NOP => (),
-            OP::HALT | OP::STOP => self.halted = true,
+            OP::STOP => println!("\nSTOP"),
+            OP::HALT => self.halted = true,
             OP::DI => self.ime = false,
             OP::EI => self.queue_ime = true,
 
@@ -384,7 +398,7 @@ impl CPU {
             OP::JP(condition) => {
                 if self.check_branch_condition(condition) {
                     next_pc = self.next_word();
-                    instr.cycles += 12;
+                    instr.cycles += 4;
                 }
             }
             OP::JPHL => next_pc = self.read_word(Word::HL),
@@ -408,7 +422,6 @@ impl CPU {
             OP::RETI => {
                 self.ime = true;
                 next_pc = self.pop_word();
-                println!("RETI");
             }
 
             OP::PUSH(push_pop_target) => self.push_word(self.read_push_pop(push_pop_target)),
@@ -416,8 +429,6 @@ impl CPU {
                 let val = self.pop_word();
                 self.write_push_pop(push_pop_target, val);
             }
-
-            _ => bail!("Unimplemented Instruction: {:?}", instr.op),
         };
         Ok(next_pc)
     }
@@ -616,54 +627,5 @@ impl CPU {
                 self.write_word(Word::HL, hl - 1);
             }
         }
-    }
-}
-
-pub struct Registers {
-    a: u8,
-    b: u8,
-    c: u8,
-    d: u8,
-    e: u8,
-    f: Flags,
-    h: u8,
-    l: u8,
-}
-
-struct MemoryBus {
-    memory: [u8; 0x10000],
-    bootrom: [u8; 0x100],
-    gpu: GPU,
-}
-
-impl MemoryBus {
-    fn read_byte(&self, addr: u16) -> u8 {
-        if addr < 0x100 && self.memory[0xff50] == 0 {
-            return self.bootrom[addr as usize];
-        }
-        self.memory[addr as usize]
-    }
-
-    fn write_byte(&mut self, addr: u16, val: u8) {
-        if addr >= 0x8000 {
-            self.memory[addr as usize] = val
-        }
-    }
-
-    fn read_bytes(&self, addr: u16, len: u16) -> Vec<u8> {
-        let mut slice: Vec<u8> = vec![0; len as usize];
-        for i in 0..len {
-            slice[i as usize] = self.read_byte(addr + i);
-        }
-        slice
-    }
-
-    fn read_word(&self, addr: u16) -> u16 {
-        ((self.read_byte(addr + 1) as u16) << 8) | (self.read_byte(addr) as u16)
-    }
-
-    fn write_word(&mut self, addr: u16, val: u16) {
-        self.write_byte(addr, val as u8);
-        self.write_byte(addr + 1, (val >> 8) as u8)
     }
 }
