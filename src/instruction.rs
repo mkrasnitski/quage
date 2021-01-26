@@ -151,12 +151,14 @@ impl OP {
     pub fn from_byte(byte: u8) -> Result<Self> {
         let b1 = (byte >> 3) & 0b111;
         let b2 = byte & 0b111;
-        let w = OP::decode_word(b1 >> 1)?;
-        let ind = OP::decode_indirect(b1 >> 1)?;
-        let r81 = OP::decode_r8(b1)?;
-        let r82 = OP::decode_r8(b2)?;
-        let branch = OP::decode_branch(b1 & 0b11)?;
-        let push_pop = OP::decode_push_pop(b1 >> 1)?;
+        let b3 = b1 >> 1;
+        let b4 = b1 & 0b11;
+        let w = Word::from_u8(b3).unwrap();
+        let ind = Indirect::from_u8(b3).unwrap();
+        let r81 = R8::from_u8(b1).unwrap();
+        let r82 = R8::from_u8(b2).unwrap();
+        let branch = BranchCondition::from_u8(b4).unwrap();
+        let push_pop = PushPopTarget::from_u8(b3).unwrap();
         Ok(match byte {
             0x01 | 0x11 | 0x21 | 0x31 => OP::LD(LDType::WordImm(w)),
             0x02 | 0x12 | 0x22 | 0x32 => OP::LD(LDType::IndFromA(ind)),
@@ -179,7 +181,11 @@ impl OP {
                 OP::decode_alu_op(b1, ALUType::Imm8)?
             }
             0xc7 | 0xd7 | 0xe7 | 0xf7 | 0xcf | 0xdf | 0xef | 0xff => {
-                OP::RST(OP::verify_rst(b2 << 3)?)
+                let addr = b2 << 3;
+                match addr {
+                    0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 => OP::RST(addr as u16),
+                    _ => bail!("Invalid RST addr: {:#02x}", addr),
+                }
             }
 
             0x00 => OP::NOP,
@@ -220,8 +226,9 @@ impl OP {
     }
 
     pub fn from_prefix_byte(byte: u8) -> Result<Self> {
-        let bit = OP::decode_bit((byte >> 3) & 0b111)?;
-        let r8 = OP::decode_r8(byte & 0b111)?;
+        let bit = (byte >> 3) & 0b111;
+        let bit = BitPosition::from_u8(bit).ok_or(anyhow!("Invalid BitPosition val: {}", bit))?;
+        let r8 = R8::from_u8(byte & 0b111).unwrap();
         Ok(match byte {
             0x00..=0x07 => OP::RLC(r8),
             0x08..=0x0f => OP::RRC(r8),
@@ -249,37 +256,6 @@ impl OP {
             7 => OP::CP(arg),
             _ => bail!("Invalid ALU op: {}", op),
         })
-    }
-
-    fn verify_rst(addr: u8) -> Result<u16> {
-        match addr {
-            0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 => Ok(addr as u16),
-            _ => bail!("Invalid RST addr: {}", addr),
-        }
-    }
-
-    fn decode_r8(val: u8) -> Result<R8> {
-        R8::from_u8(val).ok_or_else(|| anyhow!("Invalid R8 val: {}", val))
-    }
-
-    fn decode_word(val: u8) -> Result<Word> {
-        Word::from_u8(val).ok_or_else(|| anyhow!("Invalid Word val: {}", val))
-    }
-
-    fn decode_indirect(val: u8) -> Result<Indirect> {
-        Indirect::from_u8(val).ok_or_else(|| anyhow!("Invalid Indirect val: {}", val))
-    }
-
-    fn decode_push_pop(val: u8) -> Result<PushPopTarget> {
-        PushPopTarget::from_u8(val).ok_or_else(|| anyhow!("Invalid POP/PUSH val: {}", val))
-    }
-
-    fn decode_bit(val: u8) -> Result<BitPosition> {
-        BitPosition::from_u8(val).ok_or_else(|| anyhow!("Invalid BitPosition val: {}", val))
-    }
-
-    fn decode_branch(val: u8) -> Result<BranchCondition> {
-        BranchCondition::from_u8(val).ok_or_else(|| anyhow!("Invalid BranchCondition val: {}", val))
     }
 }
 

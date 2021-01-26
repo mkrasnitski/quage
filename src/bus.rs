@@ -111,10 +111,6 @@ impl Cartridge {
             0xFF
         }
     }
-
-    pub fn write_byte(&mut self, addr: u16, val: u8) {
-        self.mapper.write_byte(addr, val);
-    }
 }
 
 pub struct MemoryBus {
@@ -149,7 +145,7 @@ impl MemoryBus {
 
     pub fn write_byte(&mut self, addr: u16, val: u8) {
         if addr < 0x8000 || (0xA000..0xC000).contains(&addr) {
-            self.cartridge.write_byte(addr, val);
+            self.cartridge.mapper.write_byte(addr, val);
         } else {
             self.memory[addr as usize] = val
         }

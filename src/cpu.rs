@@ -120,7 +120,9 @@ impl CPU {
 
     pub fn step(&mut self) -> Result<()> {
         self.check_interrupts();
-        let cycles_passed = if !self.halted {
+        let cycles_passed = if self.halted {
+            4
+        } else {
             let byte = self.bus.read_byte(self.pc);
             let (byte, prefix) = if byte == 0xcb {
                 (self.next_byte(), true)
@@ -149,8 +151,6 @@ impl CPU {
                 std::io::stdout().flush().unwrap();
             }
             instr.cycles
-        } else {
-            4
         };
         self.increment_timers(cycles_passed);
         self.cycles += cycles_passed;
@@ -221,10 +221,13 @@ impl CPU {
             OP::LD(ld_type) => match ld_type {
                 LDType::ByteImm(r8) => self.write_r8(r8, self.next_byte()),
                 LDType::WordImm(word) => self.write_word(word, self.next_word()),
-                LDType::IndFromA(ind) => self.write_ind(ind, self.read_r8(R8::A)),
+                LDType::IndFromA(ind) => {
+                    let ind = self.decode_ind(ind);
+                    self.bus.write_byte(ind, self.read_r8(R8::A));
+                }
                 LDType::AFromInd(ind) => {
-                    let res = self.read_ind(ind);
-                    self.write_r8(R8::A, res);
+                    let ind = self.decode_ind(ind);
+                    self.write_r8(R8::A, self.bus.read_byte(ind));
                 }
                 LDType::MoveByte(dest, src) => self.write_r8(dest, self.read_r8(src)),
                 LDType::ByteIndFromA => self
@@ -424,10 +427,28 @@ impl CPU {
                 next_pc = self.pop_word();
             }
 
-            OP::PUSH(push_pop_target) => self.push_word(self.read_push_pop(push_pop_target)),
+            OP::PUSH(push_pop_target) => {
+                let val = match push_pop_target {
+                    PushPopTarget::BC => self.read_word(Word::BC),
+                    PushPopTarget::DE => self.read_word(Word::DE),
+                    PushPopTarget::HL => self.read_word(Word::HL),
+                    PushPopTarget::AF => {
+                        ((self.registers.a as u16) << 8) | u8::from(self.registers.f) as u16
+                    }
+                };
+                self.push_word(val);
+            }
             OP::POP(push_pop_target) => {
                 let val = self.pop_word();
-                self.write_push_pop(push_pop_target, val);
+                match push_pop_target {
+                    PushPopTarget::BC => self.write_word(Word::BC, val),
+                    PushPopTarget::DE => self.write_word(Word::DE, val),
+                    PushPopTarget::HL => self.write_word(Word::HL, val),
+                    PushPopTarget::AF => {
+                        self.registers.a = (val >> 8) as u8;
+                        self.registers.f = Flags::from(val as u8);
+                    }
+                }
             }
         };
         Ok(next_pc)
@@ -559,29 +580,6 @@ impl CPU {
         }
     }
 
-    fn read_push_pop(&self, p: PushPopTarget) -> u16 {
-        match p {
-            PushPopTarget::BC => self.read_word(Word::BC),
-            PushPopTarget::DE => self.read_word(Word::DE),
-            PushPopTarget::HL => self.read_word(Word::HL),
-            PushPopTarget::AF => {
-                ((self.registers.a as u16) << 8) | u8::from(self.registers.f) as u16
-            }
-        }
-    }
-
-    fn write_push_pop(&mut self, p: PushPopTarget, val: u16) {
-        match p {
-            PushPopTarget::BC => self.write_word(Word::BC, val),
-            PushPopTarget::DE => self.write_word(Word::DE, val),
-            PushPopTarget::HL => self.write_word(Word::HL, val),
-            PushPopTarget::AF => {
-                self.registers.a = (val >> 8) as u8;
-                self.registers.f = Flags::from(val as u8);
-            }
-        }
-    }
-
     fn read_alu(&self, alu_type: ALUType) -> u8 {
         match alu_type {
             ALUType::R8(r8) => self.read_r8(r8),
@@ -589,42 +587,20 @@ impl CPU {
         }
     }
 
-    fn read_ind(&mut self, ind: Indirect) -> u8 {
+    fn decode_ind(&mut self, ind: Indirect) -> u16 {
         match ind {
-            Indirect::CInd => self.bus.read_byte(0xFF00 + self.read_r8(R8::C) as u16),
-            Indirect::BCInd => self.bus.read_byte(self.read_word(Word::BC)),
-            Indirect::DEInd => self.bus.read_byte(self.read_word(Word::DE)),
+            Indirect::CInd => 0xFF00 + self.read_r8(R8::C) as u16,
+            Indirect::BCInd => self.read_word(Word::BC),
+            Indirect::DEInd => self.read_word(Word::DE),
             Indirect::HLIndPlus => {
-                let res = self.bus.read_byte(self.read_word(Word::HL));
                 let hl = self.read_word(Word::HL);
                 self.write_word(Word::HL, hl + 1);
-                res
+                hl
             }
             Indirect::HLIndMinus => {
-                let res = self.bus.read_byte(self.read_word(Word::HL));
                 let hl = self.read_word(Word::HL);
                 self.write_word(Word::HL, hl - 1);
-                res
-            }
-        }
-    }
-
-    fn write_ind(&mut self, ind: Indirect, val: u8) {
-        match ind {
-            Indirect::CInd => self
-                .bus
-                .write_byte(0xFF00 + self.read_r8(R8::C) as u16, val),
-            Indirect::BCInd => self.bus.write_byte(self.read_word(Word::BC), val),
-            Indirect::DEInd => self.bus.write_byte(self.read_word(Word::DE), val),
-            Indirect::HLIndPlus => {
-                self.bus.write_byte(self.read_word(Word::HL), val);
-                let hl = self.read_word(Word::HL);
-                self.write_word(Word::HL, hl + 1);
-            }
-            Indirect::HLIndMinus => {
-                self.bus.write_byte(self.read_word(Word::HL), val);
-                let hl = self.read_word(Word::HL);
-                self.write_word(Word::HL, hl - 1);
+                hl
             }
         }
     }
