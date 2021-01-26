@@ -259,27 +259,27 @@ impl OP {
     }
 
     fn decode_r8(val: u8) -> Result<R8> {
-        R8::from_u8(val).ok_or(anyhow!("Invalid R8 val: {}", val))
+        R8::from_u8(val).ok_or_else(|| anyhow!("Invalid R8 val: {}", val))
     }
 
     fn decode_word(val: u8) -> Result<Word> {
-        Word::from_u8(val).ok_or(anyhow!("Invalid Word val: {}", val))
+        Word::from_u8(val).ok_or_else(|| anyhow!("Invalid Word val: {}", val))
     }
 
     fn decode_indirect(val: u8) -> Result<Indirect> {
-        Indirect::from_u8(val).ok_or(anyhow!("Invalid Indirect val: {}", val))
+        Indirect::from_u8(val).ok_or_else(|| anyhow!("Invalid Indirect val: {}", val))
     }
 
     fn decode_push_pop(val: u8) -> Result<PushPopTarget> {
-        PushPopTarget::from_u8(val).ok_or(anyhow!("Invalid POP/PUSH val: {}", val))
+        PushPopTarget::from_u8(val).ok_or_else(|| anyhow!("Invalid POP/PUSH val: {}", val))
     }
 
     fn decode_bit(val: u8) -> Result<BitPosition> {
-        BitPosition::from_u8(val).ok_or(anyhow!("Invalid BitPosition val: {}", val))
+        BitPosition::from_u8(val).ok_or_else(|| anyhow!("Invalid BitPosition val: {}", val))
     }
 
     fn decode_branch(val: u8) -> Result<BranchCondition> {
-        BranchCondition::from_u8(val).ok_or(anyhow!("Invalid BranchCondition val: {}", val))
+        BranchCondition::from_u8(val).ok_or_else(|| anyhow!("Invalid BranchCondition val: {}", val))
     }
 }
 

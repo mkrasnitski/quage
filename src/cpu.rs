@@ -74,26 +74,26 @@ impl CPU {
             cpu.registers.l = 0x4d;
             cpu.registers.f = Flags::from(0xb0);
             cpu.sp = 0xfffe;
-            cpu.bus.memory[0xff10] = 0x80;
-            cpu.bus.memory[0xff11] = 0xbf;
-            cpu.bus.memory[0xff12] = 0xf3;
-            cpu.bus.memory[0xff14] = 0xbf;
-            cpu.bus.memory[0xff16] = 0x3f;
-            cpu.bus.memory[0xff19] = 0xbf;
-            cpu.bus.memory[0xff1a] = 0x7f;
-            cpu.bus.memory[0xff1b] = 0xff;
-            cpu.bus.memory[0xff1c] = 0x9f;
-            cpu.bus.memory[0xff1e] = 0xbf;
-            cpu.bus.memory[0xff20] = 0xff;
-            cpu.bus.memory[0xff23] = 0xbf;
-            cpu.bus.memory[0xff24] = 0x77;
-            cpu.bus.memory[0xff25] = 0xf3;
-            cpu.bus.memory[0xff26] = 0xf1;
-            cpu.bus.memory[0xff40] = 0x91;
-            cpu.bus.memory[0xff47] = 0xfc;
-            cpu.bus.memory[0xff48] = 0xff;
-            cpu.bus.memory[0xff49] = 0xff;
-            cpu.bus.memory[0xff50] = 0x01;
+            cpu.bus.write_byte(0xff10, 0x80);
+            cpu.bus.write_byte(0xff11, 0xbf);
+            cpu.bus.write_byte(0xff12, 0xf3);
+            cpu.bus.write_byte(0xff14, 0xbf);
+            cpu.bus.write_byte(0xff16, 0x3f);
+            cpu.bus.write_byte(0xff19, 0xbf);
+            cpu.bus.write_byte(0xff1a, 0x7f);
+            cpu.bus.write_byte(0xff1b, 0xff);
+            cpu.bus.write_byte(0xff1c, 0x9f);
+            cpu.bus.write_byte(0xff1e, 0xbf);
+            cpu.bus.write_byte(0xff20, 0xff);
+            cpu.bus.write_byte(0xff23, 0xbf);
+            cpu.bus.write_byte(0xff24, 0x77);
+            cpu.bus.write_byte(0xff25, 0xf3);
+            cpu.bus.write_byte(0xff26, 0xf1);
+            cpu.bus.write_byte(0xff40, 0x91);
+            cpu.bus.write_byte(0xff47, 0xfc);
+            cpu.bus.write_byte(0xff48, 0xff);
+            cpu.bus.write_byte(0xff49, 0xff);
+            cpu.bus.write_byte(0xff50, 0x01);
             cpu.pc = 0x100;
         }
         Ok(cpu)
@@ -213,7 +213,7 @@ impl CPU {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
             OP::NOP => (),
-            OP::STOP => println!("\nSTOP"),
+            OP::STOP => println!("\nSTOP\n"),
             OP::HALT => self.halted = true,
             OP::DI => self.ime = false,
             OP::EI => self.queue_ime = true,
