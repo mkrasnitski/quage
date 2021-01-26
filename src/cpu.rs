@@ -1,4 +1,4 @@
-#![allow(dead_code, non_snake_case)]
+#![allow(non_snake_case)]
 use anyhow::Result;
 
 use crate::bus::*;
@@ -500,21 +500,11 @@ impl CPU {
 
     fn check_branch_condition(&self, condition: BranchCondition) -> bool {
         match condition {
-            BranchCondition::NotZero => !self.read_flag(Flag::Z),
-            BranchCondition::Zero => self.read_flag(Flag::Z),
-            BranchCondition::NotCarry => !self.read_flag(Flag::C),
-            BranchCondition::Carry => self.read_flag(Flag::C),
+            BranchCondition::NotZero => !self.registers.f.z,
+            BranchCondition::Zero => self.registers.f.z,
+            BranchCondition::NotCarry => !self.registers.f.c,
+            BranchCondition::Carry => self.registers.f.c,
             BranchCondition::Always => true,
-        }
-    }
-
-    fn read_flag(&self, flag: Flag) -> bool {
-        let f = &self.registers.f;
-        match flag {
-            Flag::Z => f.z,
-            Flag::N => f.n,
-            Flag::H => f.h,
-            Flag::C => f.c,
         }
     }
 

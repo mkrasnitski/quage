@@ -1,18 +1,9 @@
-#![allow(dead_code)]
-
 #[derive(Copy, Clone)]
 pub struct Flags {
     pub z: bool,
     pub n: bool,
     pub h: bool,
     pub c: bool,
-}
-
-pub enum Flag {
-    Z,
-    N,
-    H,
-    C,
 }
 
 impl std::convert::From<Flags> for u8 {
