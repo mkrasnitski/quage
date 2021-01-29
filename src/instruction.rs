@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
 use std::fmt;
@@ -227,7 +227,8 @@ impl OP {
 
     pub fn from_prefix_byte(byte: u8) -> Result<Self> {
         let bit = (byte >> 3) & 0b111;
-        let bit = BitPosition::from_u8(bit).ok_or(anyhow!("Invalid BitPosition val: {}", bit))?;
+        let bit = BitPosition::from_u8(bit)
+            .ok_or_else(|| anyhow::anyhow!("Invalid BitPosition val: {}", bit))?;
         let r8 = R8::from_u8(byte & 0b111).unwrap();
         Ok(match byte {
             0x00..=0x07 => OP::RLC(r8),

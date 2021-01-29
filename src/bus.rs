@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
 
@@ -110,7 +110,7 @@ impl Cartridge {
             ram: vec![0; ram_size as usize],
             mapper: Mapper {
                 mapper_type: MapperType::from_u8(mapper)
-                    .ok_or_else(|| anyhow!("Invalid Mapper: {}", mapper))?,
+                    .ok_or_else(|| anyhow::anyhow!("Invalid Mapper: {}", mapper))?,
                 num_rom_banks,
                 ram_size,
                 low_bank: 0,
@@ -166,7 +166,10 @@ impl MemoryBus {
         } else if (0xA000..0xC000).contains(&addr) {
             self.cartridge.read_ram_byte(addr)
         } else {
-            self.memory[addr as usize]
+            match addr {
+                0xFF4D => 0xFF, // speed switch hack
+                _ => self.memory[addr as usize],
+            }
         }
     }
 

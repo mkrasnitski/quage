@@ -213,7 +213,7 @@ impl CPU {
         let mut next_pc = self.pc + instr.len;
         match instr.op {
             OP::NOP => (),
-            OP::STOP => println!("\nSTOP\n"),
+            OP::STOP => anyhow::bail!("\nSTOP\n"),
             OP::HALT => self.halted = true,
             OP::DI => self.ime = false,
             OP::EI => self.queue_ime = true,
