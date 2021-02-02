@@ -50,7 +50,6 @@ impl Mapper {
                     }
                 }
                 0x6000..=0x7FFF => self.flag = val != 0,
-
                 _ => (),
             },
         }
@@ -158,35 +157,24 @@ impl MemoryBus {
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
-        if addr < 0x8000 {
-            if addr < 0x100 && self.read_byte(0xff50) == 0 {
-                return self.bootrom[addr as usize];
+        match addr {
+            0x0000..=0x7FFF => {
+                if addr < 0x100 && self.read_byte(0xff50) == 0 {
+                    return self.bootrom[addr as usize];
+                }
+                self.cartridge.read_rom_byte(addr)
             }
-            self.cartridge.read_rom_byte(addr)
-        } else if (0xA000..0xC000).contains(&addr) {
-            self.cartridge.read_ram_byte(addr)
-        } else {
-            match addr {
-                0xFF4D => 0xFF, // speed switch hack
-                _ => self.memory[addr as usize],
-            }
+            0xA000..=0xBFFF => self.cartridge.read_ram_byte(addr),
+            0xFF4D => 0xFF,
+            _ => self.memory[addr as usize],
         }
     }
 
     pub fn write_byte(&mut self, addr: u16, val: u8) {
-        if addr < 0x8000 || (0xA000..0xC000).contains(&addr) {
-            self.cartridge.mapper.write_byte(addr, val);
-        } else {
-            self.memory[addr as usize] = val
+        match addr {
+            0x0000..=0x7FFF | 0xA000..=0xBFFF => self.cartridge.mapper.write_byte(addr, val),
+            _ => self.memory[addr as usize] = val,
         }
-    }
-
-    pub fn read_bytes(&self, addr: u16, len: u16) -> Vec<u8> {
-        let mut slice: Vec<u8> = vec![0; len as usize];
-        for i in 0..len {
-            slice[i as usize] = self.read_byte(addr + i);
-        }
-        slice
     }
 
     pub fn read_word(&self, addr: u16) -> u16 {

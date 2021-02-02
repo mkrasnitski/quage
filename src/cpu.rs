@@ -99,10 +99,14 @@ impl CPU {
         Ok(cpu)
     }
 
-    fn state(&self) -> String {
+    fn state(&self, instr_len: u16) -> String {
         let r = &self.registers;
+        let instr_state = (0..instr_len)
+            .map(|i| format!("{:02x}", self.bus.read_byte(self.pc + i)))
+            .collect::<Vec<String>>()
+            .join(" ");
         format!(
-            "{:04x} {: >2} {:04x} {} {:04b} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
+            "{:04x} {: >2} {:04x} {} {:04b} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}] {: >8}",
             self.pc,
             self.cycles,
             self.sp,
@@ -114,7 +118,8 @@ impl CPU {
             r.d,
             r.e,
             r.h,
-            r.l
+            r.l,
+            instr_state
         )
     }
 
@@ -130,26 +135,20 @@ impl CPU {
                 (byte, false)
             };
             let mut instr = Instruction::from_byte(byte, prefix)?;
-            let state = format!(
-                "{} {: >8}",
-                self.state(),
-                self.bus
-                    .read_bytes(self.pc, instr.len)
-                    .iter()
-                    .map(|b| format!("{:02x}", b))
-                    .collect::<Vec<String>>()
-                    .join(" ")
-            );
+            let state = self.state(instr.len);
             self.pc = self.execute(&mut instr)?;
             if DEBUG {
                 println!("{} -> {}", state, instr);
             }
+
+            // temporarily reading output from serial port
             if self.bus.read_byte(0xFF02) == 0x81 {
                 let c = self.bus.read_byte(0xFF01) as char;
                 self.bus.write_byte(0xFF02, 0x00);
                 print!("{}", c);
                 std::io::stdout().flush().unwrap();
             }
+
             instr.cycles
         };
         self.increment_timers(cycles_passed);
