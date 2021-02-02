@@ -152,8 +152,13 @@ impl CPU {
             instr.cycles
         };
         self.increment_timers(cycles_passed);
+        self.bus.ppu.draw(cycles_passed);
         self.cycles += cycles_passed;
         Ok(())
+    }
+
+    pub fn check_draw_call(&self) -> bool {
+        self.bus.ppu.draw_call
     }
 
     fn check_interrupts(&mut self) {

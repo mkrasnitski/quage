@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
 
-use crate::gpu::*;
+use crate::ppu::*;
 
 #[derive(Primitive)]
 pub enum MapperType {
@@ -143,7 +143,7 @@ pub struct MemoryBus {
     memory: [u8; 0x10000],
     bootrom: Vec<u8>,
     cartridge: Cartridge,
-    gpu: GPU,
+    pub ppu: PPU,
 }
 
 impl MemoryBus {
@@ -152,7 +152,7 @@ impl MemoryBus {
             memory: [0; 0x10000],
             bootrom,
             cartridge: Cartridge::new(cartridge)?,
-            gpu: GPU {},
+            ppu: PPU::new(),
         })
     }
 

@@ -1,9 +1,10 @@
 mod bus;
 mod cpu;
+mod display;
 mod flags;
 mod gb;
-mod gpu;
 mod instruction;
+mod ppu;
 use anyhow::Result;
 use std::env;
 
