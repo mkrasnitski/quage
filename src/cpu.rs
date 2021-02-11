@@ -2,10 +2,10 @@
 use anyhow::Result;
 
 use crate::bus::*;
+use crate::display::*;
 use crate::flags::*;
 use crate::instruction::*;
 
-use std::io::Write;
 const DEBUG: bool = false;
 
 fn signed_offset_u16(x: u16, y: u8) -> u16 {
@@ -140,15 +140,6 @@ impl CPU {
             if DEBUG {
                 println!("{} -> {}", state, instr);
             }
-
-            // temporarily reading output from serial port
-            if self.bus.read_byte(0xFF02) == 0x81 {
-                let c = self.bus.read_byte(0xFF01) as char;
-                self.bus.write_byte(0xFF02, 0x00);
-                print!("{}", c);
-                std::io::stdout().flush().unwrap();
-            }
-
             instr.cycles
         };
         self.increment_timers(cycles_passed);
@@ -157,8 +148,8 @@ impl CPU {
         Ok(())
     }
 
-    pub fn check_draw_call(&self) -> bool {
-        self.bus.ppu.draw_call
+    pub fn poll_display_event(&mut self) -> DisplayEvent {
+        self.bus.ppu.poll_display_event()
     }
 
     fn check_interrupts(&mut self) {

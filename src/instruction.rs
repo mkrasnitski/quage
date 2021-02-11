@@ -225,12 +225,11 @@ impl OP {
         })
     }
 
-    pub fn from_prefix_byte(byte: u8) -> Result<Self> {
+    pub fn from_prefix_byte(byte: u8) -> Self {
         let bit = (byte >> 3) & 0b111;
-        let bit = BitPosition::from_u8(bit)
-            .ok_or_else(|| anyhow::anyhow!("Invalid BitPosition val: {}", bit))?;
+        let bit = BitPosition::from_u8(bit).unwrap();
         let r8 = R8::from_u8(byte & 0b111).unwrap();
-        Ok(match byte {
+        match byte {
             0x00..=0x07 => OP::RLC(r8),
             0x08..=0x0f => OP::RRC(r8),
             0x10..=0x17 => OP::RL(r8),
@@ -242,7 +241,7 @@ impl OP {
             0x40..=0x7f => OP::BIT(bit, r8),
             0x80..=0xbf => OP::RES(bit, r8),
             0xc0..=0xff => OP::SET(bit, r8),
-        })
+        }
     }
 
     fn decode_alu_op(op: u8, arg: ALUType) -> Result<OP> {
@@ -278,7 +277,7 @@ impl Instruction {
         let op = if !prefix {
             OP::from_byte(byte)?
         } else {
-            OP::from_prefix_byte(byte)?
+            OP::from_prefix_byte(byte)
         };
         let (len, cycles) = Instruction::get_len_cycles(&op);
         Ok(Instruction { op, len, cycles })

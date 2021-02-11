@@ -50,7 +50,7 @@ impl Mapper {
                     }
                 }
                 0x6000..=0x7FFF => self.flag = val != 0,
-                _ => (),
+                _ => panic!("Invalid write addr: {}", addr),
             },
         }
     }
@@ -130,20 +130,25 @@ impl Cartridge {
     }
 
     pub fn read_ram_byte(&self, addr: u16) -> u8 {
-        let addr = addr as usize - 0xA000;
-        if self.mapper.ram_enabled && addr < self.mapper.ram_size as usize {
+        if self.mapper.ram_enabled && (addr as u32) < self.mapper.ram_size {
             self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr as usize - 0xA000]
         } else {
             0xFF
         }
     }
+
+    pub fn write_ram_byte(&mut self, addr: u16, val: u8) {
+        if self.mapper.ram_enabled && (addr as u32) < self.mapper.ram_size {
+            self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr as usize - 0xA000] = val
+        }
+    }
 }
 
 pub struct MemoryBus {
+    pub ppu: PPU,
     memory: [u8; 0x10000],
     bootrom: Vec<u8>,
     cartridge: Cartridge,
-    pub ppu: PPU,
 }
 
 impl MemoryBus {
@@ -152,7 +157,7 @@ impl MemoryBus {
             memory: [0; 0x10000],
             bootrom,
             cartridge: Cartridge::new(cartridge)?,
-            ppu: PPU::new(),
+            ppu: PPU::new()?,
         })
     }
 
@@ -164,6 +169,7 @@ impl MemoryBus {
                 }
                 self.cartridge.read_rom_byte(addr)
             }
+            0x8000..=0x9FFF => self.ppu.read_byte(addr),
             0xA000..=0xBFFF => self.cartridge.read_ram_byte(addr),
             0xFF4D => 0xFF,
             _ => self.memory[addr as usize],
@@ -172,8 +178,15 @@ impl MemoryBus {
 
     pub fn write_byte(&mut self, addr: u16, val: u8) {
         match addr {
-            0x0000..=0x7FFF | 0xA000..=0xBFFF => self.cartridge.mapper.write_byte(addr, val),
-            _ => self.memory[addr as usize] = val,
+            0x0000..=0x7FFF => self.cartridge.mapper.write_byte(addr, val),
+            0x8000..=0x9FFF => self.ppu.write_byte(addr, val),
+            0xA000..=0xBFFF => self.cartridge.write_ram_byte(addr, val),
+            _ => {
+                if addr == 0xFF40 {
+                    println!("LCDC {:08b}", val);
+                }
+                self.memory[addr as usize] = val;
+            }
         }
     }
 
