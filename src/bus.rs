@@ -171,6 +171,7 @@ impl MemoryBus {
             }
             0x8000..=0x9FFF => self.ppu.read_byte(addr),
             0xA000..=0xBFFF => self.cartridge.read_ram_byte(addr),
+            0xFF40..=0xFF45 | 0xFF47 => self.ppu.read_byte(addr),
             0xFF4D => 0xFF,
             _ => self.memory[addr as usize],
         }
@@ -181,12 +182,8 @@ impl MemoryBus {
             0x0000..=0x7FFF => self.cartridge.mapper.write_byte(addr, val),
             0x8000..=0x9FFF => self.ppu.write_byte(addr, val),
             0xA000..=0xBFFF => self.cartridge.write_ram_byte(addr, val),
-            _ => {
-                if addr == 0xFF40 {
-                    println!("LCDC {:08b}", val);
-                }
-                self.memory[addr as usize] = val;
-            }
+            0xFF40..=0xFF45 | 0xFF47 => self.ppu.write_byte(addr, val),
+            _ => self.memory[addr as usize] = val,
         }
     }
 
