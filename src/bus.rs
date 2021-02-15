@@ -8,6 +8,8 @@ use crate::ppu::*;
 pub enum MapperType {
     ROM = 0,
     MBC1 = 1,
+    MBC1Ram = 2,
+    MBC1BattRam = 3,
 }
 
 pub struct Mapper {
@@ -23,8 +25,7 @@ pub struct Mapper {
 
 impl Mapper {
     fn write_byte(&mut self, addr: u16, val: u8) {
-        let rom_mask =
-            (1 << std::cmp::min(5, ((self.num_rom_banks - 1) as f32).log2() as u8 + 1)) - 1;
+        let rom_mask = (1 << ((self.num_rom_banks - 1) as f32).log2() as u8 + 1) - 1;
         let ram_mask = if self.ram_size <= 8192 {
             0
         } else {
@@ -32,13 +33,11 @@ impl Mapper {
         };
         match self.mapper_type {
             MapperType::ROM => (),
-            MapperType::MBC1 => match addr {
+            MapperType::MBC1 | MapperType::MBC1Ram | MapperType::MBC1BattRam => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x3FFF => {
-                    let mut bank_num = val & rom_mask;
-                    if bank_num == 0 {
-                        bank_num = 1;
-                    }
+                    let val = val & 0x1f;
+                    let bank_num = if val == 0 { 1 } else { val & rom_mask };
                     self.high_bank = (self.high_bank & 0x60) | bank_num;
                 }
                 0x4000..=0x5FFF => {
@@ -89,9 +88,6 @@ impl Cartridge {
         let ram = cart[0x149];
         let num_rom_banks = match size {
             0x00..=0x08 => 2 << size,
-            0x52 => 72,
-            0x53 => 80,
-            0x54 => 96,
             _ => bail!("Invalid ROM Size: {:#02x}", size),
         };
         let ram_size = 1024
@@ -130,7 +126,7 @@ impl Cartridge {
     }
 
     pub fn read_ram_byte(&self, addr: u16) -> u8 {
-        if self.mapper.ram_enabled && (addr as u32) < self.mapper.ram_size {
+        if self.mapper.ram_enabled {
             self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr as usize - 0xA000]
         } else {
             0xFF
@@ -138,7 +134,7 @@ impl Cartridge {
     }
 
     pub fn write_ram_byte(&mut self, addr: u16, val: u8) {
-        if self.mapper.ram_enabled && (addr as u32) < self.mapper.ram_size {
+        if self.mapper.ram_enabled {
             self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr as usize - 0xA000] = val
         }
     }
