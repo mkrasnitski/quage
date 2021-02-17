@@ -152,7 +152,15 @@ impl CPU {
         self.bus.ppu.poll_display_event()
     }
 
+    fn request_interrupt(&mut self, int: u8) {
+        if int < 5 {
+            self.bus
+                .write_byte(0xFF0F, self.bus.read_byte(0xFF0F) | (1 << int));
+        }
+    }
+
     fn check_interrupts(&mut self) {
+        self.bus.check_interrupts();
         let IE = self.bus.read_byte(0xFFFF);
         let IF = self.bus.read_byte(0xFF0F);
         for i in 0..5 {
@@ -160,6 +168,7 @@ impl CPU {
             if IE & IF & mask != 0 {
                 self.halted = false;
                 if self.ime {
+                    self.ime = false;
                     self.bus.write_byte(0xFF0F, IF ^ mask);
                     self.push_word(self.pc);
                     self.pc = (i << 3) + 0x40;
@@ -195,8 +204,7 @@ impl CPU {
                 let (TIMA, c) = self.bus.read_byte(0xFF05).overflowing_add(timer_clocks);
                 if c {
                     self.bus.write_byte(0xFF05, self.bus.read_byte(0xFF06));
-                    self.bus
-                        .write_byte(0xFF0F, self.bus.read_byte(0xFF0F) | 0b100);
+                    self.request_interrupt(2);
                 } else {
                     self.bus.write_byte(0xFF05, TIMA);
                 }

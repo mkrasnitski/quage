@@ -16,16 +16,17 @@ impl GameBoy {
             .with_context(|| format!("Couldn't read cartridge `{}`", cartridge_path))?;
 
         Ok(GameBoy {
-            cpu: CPU::new(bootrom, cartridge, false)?,
+            cpu: CPU::new(bootrom, cartridge, true)?,
         })
     }
 
     pub fn run(&mut self) -> Result<()> {
-        Ok(loop {
+        loop {
             self.cpu.step()?;
             if let DisplayEvent::Quit = self.cpu.poll_display_event() {
                 break;
             }
-        })
+        }
+        Ok(())
     }
 }

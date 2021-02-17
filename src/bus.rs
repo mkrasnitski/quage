@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 use anyhow::{bail, Result};
 use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
@@ -25,7 +26,7 @@ pub struct Mapper {
 
 impl Mapper {
     fn write_byte(&mut self, addr: u16, val: u8) {
-        let rom_mask = (1 << ((self.num_rom_banks - 1) as f32).log2() as u8 + 1) - 1;
+        let rom_mask = (1 << (((self.num_rom_banks - 1) as f32).log2() as u8 + 1)) - 1;
         let ram_mask = if self.ram_size <= 8192 {
             0
         } else {
@@ -143,18 +144,32 @@ impl Cartridge {
 pub struct MemoryBus {
     pub ppu: PPU,
     memory: [u8; 0x10000],
+    work_ram: [u8; 0x2000],
+    hram: [u8; 0x7f],
     bootrom: Vec<u8>,
     cartridge: Cartridge,
+    IE: u8,
+    IF: u8,
 }
 
 impl MemoryBus {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>) -> Result<Self> {
         Ok(MemoryBus {
+            ppu: PPU::new()?,
             memory: [0; 0x10000],
+            work_ram: [0; 0x2000],
+            hram: [0; 0x7f],
             bootrom,
             cartridge: Cartridge::new(cartridge)?,
-            ppu: PPU::new()?,
+            IE: 0,
+            IF: 0,
         })
+    }
+
+    pub fn check_interrupts(&mut self) {
+        let (vblank, stat) = self.ppu.check_interrupts();
+        self.IF |= vblank as u8;
+        self.IF |= (stat as u8) << 1;
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
@@ -167,8 +182,16 @@ impl MemoryBus {
             }
             0x8000..=0x9FFF => self.ppu.read_byte(addr),
             0xA000..=0xBFFF => self.cartridge.read_ram_byte(addr),
-            0xFF40..=0xFF45 | 0xFF47 => self.ppu.read_byte(addr),
+            0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000],
+            0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000],
+            0xFE00..=0xFE9F => self.ppu.read_byte(addr),
+            0xFEA0..=0xFEFF => 0xFF,
+            0xFF80..=0xFFEF => self.hram[addr as usize - 0xFF80],
+
+            0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
             0xFF4D => 0xFF,
+            0xFF0F => self.IF,
+            0xFFFF => self.IE,
             _ => self.memory[addr as usize],
         }
     }
@@ -178,7 +201,14 @@ impl MemoryBus {
             0x0000..=0x7FFF => self.cartridge.mapper.write_byte(addr, val),
             0x8000..=0x9FFF => self.ppu.write_byte(addr, val),
             0xA000..=0xBFFF => self.cartridge.write_ram_byte(addr, val),
+            0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000] = val,
+            0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000] = val,
+            0xFE00..=0xFE9F => self.ppu.write_byte(addr, val),
+            0xFF80..=0xFFEF => self.hram[addr as usize - 0xFF80] = val,
+
             0xFF40..=0xFF45 | 0xFF47 => self.ppu.write_byte(addr, val),
+            0xFF0F => self.IF = val,
+            0xFFFF => self.IE = val,
             _ => self.memory[addr as usize] = val,
         }
     }
