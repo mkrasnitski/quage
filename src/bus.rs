@@ -206,7 +206,7 @@ impl MemoryBus {
             0xFE00..=0xFE9F => self.ppu.write_byte(addr, val),
             0xFF80..=0xFFEF => self.hram[addr as usize - 0xFF80] = val,
 
-            0xFF40..=0xFF45 | 0xFF47 => self.ppu.write_byte(addr, val),
+            0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF0F => self.IF = val,
             0xFFFF => self.IE = val,
             _ => self.memory[addr as usize] = val,

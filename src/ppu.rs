@@ -97,24 +97,15 @@ impl PPU {
             0x8000..=0x9FFF => self.memory[addr as usize - 0x8000] = val,
             0xFE00..=0xFE9F => self.oam[addr as usize - 0xFE00] = val,
             0xFF40 => self.registers.LCDC = val,
-            0xFF41 => {
-                self.registers.STAT |= val & !7;
-                // println!("STAT {:08b} {:08b}", val, self.registers.STAT);
-            }
+            0xFF41 => self.registers.STAT |= val & !7,
             0xFF42 => self.registers.SCY = val,
             0xFF43 => self.registers.SCX = val,
             0xFF45 => self.registers.LYC = val,
             0xFF47 => self.registers.BGP = val,
             0xFF48 => self.registers.OBP0 = val,
             0xFF49 => self.registers.OBP1 = val,
-            0xFF4A => {
-                self.registers.WY = val;
-                // println!("WY {}", val);
-            }
-            0xFF4B => {
-                self.registers.WX = val;
-                // println!("WX {}", val);
-            }
+            0xFF4A => self.registers.WY = val,
+            0xFF4B => self.registers.WX = val,
             _ => panic!("Invalid PPU Register write: {:04x}", addr),
         }
     }
@@ -157,14 +148,18 @@ impl PPU {
         // Start of a line
         if scanline != self.registers.LY {
             self.block_stat_irqs = false;
+            if scanline == 0 {
+                self.registers.WC = 0;
+            }
         }
         self.registers.LY = scanline;
 
         // Check for LY = LYC
         let coincidence = self.registers.LY == self.registers.LYC;
-        if coincidence {
+        if coincidence && clocks == 0 {
             self.req_stat_interrupt(6);
         }
+        self.registers.STAT &= !(1 << 2);
         self.registers.STAT |= (coincidence as u8) << 2;
 
         // PPU Mode switching
@@ -194,10 +189,6 @@ impl PPU {
         }
     }
 
-    fn get_mode(&self) -> u8 {
-        self.registers.STAT & 0b11
-    }
-
     fn req_stat_interrupt(&mut self, bit: u8) {
         if !self.block_stat_irqs
             && (self.registers.STAT & (1 << bit)) != 0
@@ -221,18 +212,38 @@ impl PPU {
                 for i in 0u8..32 {
                     let bg_tile_num =
                         self.read_byte(bg_tilemap + 32 * ((bg_y / 8) as u16) + i as u16);
-                    let tile_row = self.decode_tile_row(bg_tile_num, bg_y % 8);
+                    let bg_tile_row = self.decode_tile_row(bg_tile_num, bg_y % 8);
                     for j in 0u8..8 {
-                        let x = (8 * i + j).wrapping_sub(self.registers.SCX) as usize;
-                        if x < W_WIDTH {
-                            self.viewport[self.registers.LY as usize][x] =
-                                self.decode_palette(tile_row[j as usize]);
+                        let bg_x = (8 * i + j).wrapping_sub(self.registers.SCX) as usize;
+                        if bg_x < W_WIDTH {
+                            self.viewport[self.registers.LY as usize][bg_x] =
+                                self.decode_palette(bg_tile_row[j as usize]);
                         }
                     }
                 }
             }
-            if self.registers.LCDC & (1 << 5) != 0 {
-                // TODO: Window rendering
+            if self.registers.LCDC & (1 << 5) != 0 && self.registers.LY >= self.registers.WY {
+                let win_tilemap = match self.registers.LCDC & (1 << 6) != 0 {
+                    true => 0x9C00,
+                    false => 0x9800,
+                };
+                let mut window_visible = false;
+                for i in 0u8..32 {
+                    let win_tile_num = self
+                        .read_byte(win_tilemap + 32 * ((self.registers.WC / 8) as u16) + i as u16);
+                    let win_tile_row = self.decode_tile_row(win_tile_num, self.registers.WC % 8);
+                    for j in 0..8 {
+                        let win_x = 8 * i as usize + j + self.registers.WX as usize;
+                        if win_x >= 7 && win_x < W_WIDTH {
+                            window_visible = true;
+                            self.viewport[self.registers.LY as usize][win_x - 7] =
+                                self.decode_palette(win_tile_row[j]);
+                        }
+                    }
+                }
+                if window_visible {
+                    self.registers.WC += 1
+                }
             }
         }
         // TODO: Sprite rendering
