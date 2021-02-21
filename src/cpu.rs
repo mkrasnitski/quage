@@ -12,6 +12,7 @@ fn signed_offset_u16(x: u16, y: u8) -> u16 {
     (x as i16 + y as i8 as i16) as u16
 }
 
+#[derive(Default)]
 pub struct Registers {
     a: u8,
     b: u8,
@@ -23,26 +24,6 @@ pub struct Registers {
     l: u8,
 }
 
-impl Registers {
-    fn new() -> Self {
-        Registers {
-            a: 0,
-            b: 0,
-            c: 0,
-            d: 0,
-            e: 0,
-            f: Flags {
-                z: false,
-                n: false,
-                h: false,
-                c: false,
-            },
-            h: 0,
-            l: 0,
-        }
-    }
-}
-
 pub struct CPU {
     pc: u16,
     sp: u16,
@@ -50,6 +31,7 @@ pub struct CPU {
     queue_ime: bool,
     ime: bool,
     halted: bool,
+    halt_bug: bool,
     registers: Registers,
     bus: MemoryBus,
 }
@@ -63,7 +45,8 @@ impl CPU {
             queue_ime: false,
             ime: false,
             halted: false,
-            registers: Registers::new(),
+            halt_bug: false,
+            registers: Registers::default(),
             bus: MemoryBus::new(bootrom, cartridge)?,
         };
         if skip_bootrom {
@@ -99,14 +82,10 @@ impl CPU {
         Ok(cpu)
     }
 
-    fn state(&self, instr_len: u16) -> String {
+    fn state(&self) -> String {
         let r = &self.registers;
-        let instr_state = (0..instr_len)
-            .map(|i| format!("{:02x}", self.bus.read_byte(self.pc + i)))
-            .collect::<Vec<String>>()
-            .join(" ");
         format!(
-            "{:04x} {: >2} {:04x} {} {:04b} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}] {: >8}",
+            "{:04x} {: >2} {:04x} {} {:04b} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
             self.pc,
             self.cycles,
             self.sp,
@@ -119,7 +98,6 @@ impl CPU {
             r.e,
             r.h,
             r.l,
-            instr_state
         )
     }
 
@@ -128,17 +106,19 @@ impl CPU {
         let cycles_passed = if self.halted {
             4
         } else {
-            let byte = self.bus.read_byte(self.pc);
+            let state = self.state();
+            let byte = self.consume_byte();
             let (byte, prefix) = if byte == 0xcb {
-                (self.next_byte(), true)
+                (self.consume_byte(), true)
             } else {
                 (byte, false)
             };
             let mut instr = Instruction::from_byte(byte, prefix)?;
-            let state = self.state(instr.len);
-            self.pc = self.execute(&mut instr)?;
+            let args = self.consume_bytes(instr.len - instr.bytes.len() as u8);
+            instr.bytes.extend(args);
+            self.execute(&mut instr);
             if DEBUG {
-                println!("{} -> {}", state, instr);
+                println!("{} {}", state, instr);
             }
             instr.cycles
         };
@@ -212,18 +192,25 @@ impl CPU {
         }
     }
 
-    fn execute(&mut self, instr: &mut Instruction) -> Result<u16> {
-        let mut next_pc = self.pc + instr.len;
+    fn execute(&mut self, instr: &mut Instruction) {
         match instr.op {
             OP::NOP => (),
-            OP::STOP => anyhow::bail!("\nSTOP\n"),
-            OP::HALT => self.halted = true,
+            OP::STOP => panic!("\nSTOP\n"),
+            OP::HALT => {
+                let IE = self.bus.read_byte(0xFFFF);
+                let IF = self.bus.read_byte(0xFF0F);
+                if self.ime == false && (IE & IF & 0x1F) != 0 {
+                    self.halt_bug = true;
+                } else {
+                    self.halted = true;
+                }
+            }
             OP::DI => self.ime = false,
             OP::EI => self.queue_ime = true,
 
             OP::LD(ld_type) => match ld_type {
-                LDType::ByteImm(r8) => self.write_r8(r8, self.next_byte()),
-                LDType::WordImm(word) => self.write_word(word, self.next_word()),
+                LDType::ByteImm(r8) => self.write_r8(r8, instr.byte_arg()),
+                LDType::WordImm(word) => self.write_word(word, instr.word_arg()),
                 LDType::IndFromA(ind) => {
                     let ind = self.decode_ind(ind);
                     self.bus.write_byte(ind, self.read_r8(R8::A));
@@ -235,49 +222,49 @@ impl CPU {
                 LDType::MoveByte(dest, src) => self.write_r8(dest, self.read_r8(src)),
                 LDType::ByteIndFromA => self
                     .bus
-                    .write_byte(0xFF00 + self.next_byte() as u16, self.read_r8(R8::A)),
+                    .write_byte(0xFF00 + instr.byte_arg() as u16, self.read_r8(R8::A)),
                 LDType::AFromByteInd => {
-                    self.write_r8(R8::A, self.bus.read_byte(0xFF00 + self.next_byte() as u16))
+                    self.write_r8(R8::A, self.bus.read_byte(0xFF00 + instr.byte_arg() as u16))
                 }
-                LDType::AddrFromA => self.bus.write_byte(self.next_word(), self.read_r8(R8::A)),
-                LDType::AFromAddr => self.write_r8(R8::A, self.bus.read_byte(self.next_word())),
+                LDType::AddrFromA => self.bus.write_byte(instr.word_arg(), self.read_r8(R8::A)),
+                LDType::AFromAddr => self.write_r8(R8::A, self.bus.read_byte(instr.word_arg())),
                 LDType::SPFromHL => self.write_word(Word::SP, self.read_word(Word::HL)),
                 LDType::AddrFromSP => self
                     .bus
-                    .write_word(self.next_word(), self.read_word(Word::SP)),
+                    .write_word(instr.word_arg(), self.read_word(Word::SP)),
                 LDType::HLFromSPi8 => {
-                    let (val, h, c) = self.sp.overflowing_hc_add_i8(self.next_byte() as i8);
+                    let (val, h, c) = self.sp.overflowing_hc_add_i8(instr.byte_arg() as i8);
                     self.set_flags(false, false, h, c);
                     self.write_word(Word::HL, val);
                 }
             },
 
             OP::AND(alu_type) => {
-                let val = self.registers.a & self.read_alu(alu_type);
+                let val = self.registers.a & self.read_alu(alu_type, &instr);
                 self.set_flags(val == 0, false, true, false);
                 self.write_r8(R8::A, val);
             }
             OP::OR(alu_type) => {
-                let val = self.registers.a | self.read_alu(alu_type);
+                let val = self.registers.a | self.read_alu(alu_type, &instr);
                 self.set_flags(val == 0, false, false, false);
                 self.write_r8(R8::A, val);
             }
             OP::XOR(alu_type) => {
-                let val = self.registers.a ^ self.read_alu(alu_type);
+                let val = self.registers.a ^ self.read_alu(alu_type, &instr);
                 self.set_flags(val == 0, false, false, false);
                 self.write_r8(R8::A, val);
             }
             OP::ADD(alu_type) => {
                 let (val, h, c) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_add(self.read_alu(alu_type));
+                    .overflowing_hc_add(self.read_alu(alu_type, &instr));
                 self.set_flags(val == 0, false, h, c);
                 self.write_r8(R8::A, val);
             }
             OP::ADC(alu_type) => {
                 let (val, h1, c1) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_add(self.read_alu(alu_type));
+                    .overflowing_hc_add(self.read_alu(alu_type, &instr));
                 let (val, h2, c2) = val.overflowing_hc_add(self.registers.f.c as u8);
                 self.set_flags(val == 0, false, h1 | h2, c1 | c2);
                 self.write_r8(R8::A, val);
@@ -290,14 +277,14 @@ impl CPU {
                 self.write_word(Word::HL, val);
             }
             OP::ADDSPi8 => {
-                let (val, h, c) = self.sp.overflowing_hc_add_i8(self.next_byte() as i8);
+                let (val, h, c) = self.sp.overflowing_hc_add_i8(instr.byte_arg() as i8);
                 self.set_flags(false, false, h, c);
                 self.sp = val;
             }
             OP::SUB(alu_type) | OP::CP(alu_type) => {
                 let (val, h, c) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_sub(self.read_alu(alu_type));
+                    .overflowing_hc_sub(self.read_alu(alu_type, &instr));
                 self.set_flags(val == 0, true, h, c);
                 if let OP::SUB(_) = instr.op {
                     self.write_r8(R8::A, val);
@@ -306,7 +293,7 @@ impl CPU {
             OP::SBC(alu_type) => {
                 let (val, h1, c1) = self
                     .read_r8(R8::A)
-                    .overflowing_hc_sub(self.read_alu(alu_type));
+                    .overflowing_hc_sub(self.read_alu(alu_type, &instr));
                 let (val, h2, c2) = val.overflowing_hc_sub(self.registers.f.c as u8);
                 self.set_flags(val == 0, true, h1 | h2, c1 | c2);
                 self.write_r8(R8::A, val);
@@ -397,37 +384,37 @@ impl CPU {
 
             OP::JR(condition) => {
                 if self.check_branch_condition(condition) {
-                    next_pc = signed_offset_u16(next_pc, self.next_byte());
+                    self.pc = signed_offset_u16(self.pc, instr.byte_arg());
                     instr.cycles += 4;
                 }
             }
             OP::JP(condition) => {
                 if self.check_branch_condition(condition) {
-                    next_pc = self.next_word();
+                    self.pc = instr.word_arg();
                     instr.cycles += 4;
                 }
             }
-            OP::JPHL => next_pc = self.read_word(Word::HL),
+            OP::JPHL => self.pc = self.read_word(Word::HL),
             OP::CALL(condition) => {
                 if self.check_branch_condition(condition) {
-                    self.push_word(next_pc);
-                    next_pc = self.next_word();
+                    self.push_word(self.pc);
+                    self.pc = instr.word_arg();
                     instr.cycles += 12;
                 }
             }
             OP::RST(addr) => {
-                self.push_word(next_pc);
-                next_pc = addr;
+                self.push_word(self.pc);
+                self.pc = addr;
             }
             OP::RET(condition) => {
                 if self.check_branch_condition(condition) {
-                    next_pc = self.pop_word();
+                    self.pc = self.pop_word();
                     instr.cycles += 12;
                 }
             }
             OP::RETI => {
                 self.ime = true;
-                next_pc = self.pop_word();
+                self.pc = self.pop_word();
             }
 
             OP::PUSH(push_pop_target) => {
@@ -454,7 +441,6 @@ impl CPU {
                 }
             }
         };
-        Ok(next_pc)
     }
 
     fn pop(&mut self) -> u8 {
@@ -479,12 +465,18 @@ impl CPU {
         self.push(val as u8);
     }
 
-    fn next_byte(&self) -> u8 {
-        self.bus.read_byte(self.pc + 1)
+    fn consume_byte(&mut self) -> u8 {
+        let byte = self.bus.read_byte(self.pc);
+        if self.halt_bug {
+            self.halt_bug = false;
+        } else {
+            self.pc += 1;
+        }
+        byte
     }
 
-    fn next_word(&self) -> u16 {
-        self.bus.read_word(self.pc + 1)
+    fn consume_bytes(&mut self, num_bytes: u8) -> Vec<u8> {
+        (0..num_bytes).map(|_| self.consume_byte()).collect()
     }
 
     fn shift_left(&mut self, r8: R8, bit: bool) {
@@ -573,10 +565,10 @@ impl CPU {
         }
     }
 
-    fn read_alu(&self, alu_type: ALUType) -> u8 {
+    fn read_alu(&mut self, alu_type: ALUType, instr: &Instruction) -> u8 {
         match alu_type {
             ALUType::R8(r8) => self.read_r8(r8),
-            ALUType::Imm8 => self.next_byte(),
+            ALUType::Imm8 => instr.byte_arg(),
         }
     }
 

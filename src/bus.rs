@@ -135,8 +135,9 @@ impl Cartridge {
     }
 
     pub fn write_ram_byte(&mut self, addr: u16, val: u8) {
-        if self.mapper.ram_enabled {
-            self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr as usize - 0xA000] = val
+        let addr = addr as usize - 0xA000;
+        if self.mapper.ram_enabled && addr < self.ram.len() {
+            self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr] = val
         }
     }
 }
@@ -162,7 +163,7 @@ impl MemoryBus {
             bootrom,
             cartridge: Cartridge::new(cartridge)?,
             IE: 0,
-            IF: 0,
+            IF: 0xE0,
         })
     }
 
@@ -207,7 +208,8 @@ impl MemoryBus {
             0xFF80..=0xFFEF => self.hram[addr as usize - 0xFF80] = val,
 
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
-            0xFF0F => self.IF = val,
+            // 0xFF46 => println!("DMA Transfer!!!"),
+            0xFF0F => self.IF = val | 0xE0,
             0xFFFF => self.IE = val,
             _ => self.memory[addr as usize] = val,
         }

@@ -7,9 +7,12 @@ use sdl2::render::Canvas;
 use sdl2::video::Window;
 use std::time::{Duration, Instant};
 
+// pub const W_WIDTH: usize = 256;
+// pub const W_HEIGHT: usize = 256;
 pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
 const W_SCALE: usize = 2;
+const LIMIT_FRAMERATE: bool = true;
 
 pub enum DisplayEvent {
     KeyEvent((String, bool)),
@@ -20,8 +23,9 @@ pub enum DisplayEvent {
 pub struct Display {
     frames: u64,
     time: Instant,
+    last_frame: Instant,
     event_pump: sdl2::EventPump,
-    pub canvas: Canvas<Window>,
+    canvas: Canvas<Window>,
 }
 
 impl Display {
@@ -30,6 +34,7 @@ impl Display {
         Ok(Display {
             frames: 0,
             time: Instant::now(),
+            last_frame: Instant::now(),
             event_pump: context.event_pump().map_err(Error::msg)?,
             canvas: context
                 .video()
@@ -69,9 +74,17 @@ impl Display {
         }
         self.canvas.present();
         self.frames += 1;
+        if LIMIT_FRAMERATE {
+            while Instant::now().duration_since(self.last_frame)
+                < Duration::from_secs_f64(70224.0 / 4194304.0)
+            {
+                continue;
+            }
+        }
+        self.last_frame = Instant::now();
         let time_elapsed = Instant::now().duration_since(self.time);
         if time_elapsed > Duration::from_secs(1) {
-            println!("{}", self.frames);
+            // println!("{}", self.frames);
             self.frames = 0;
             self.time = Instant::now();
         }

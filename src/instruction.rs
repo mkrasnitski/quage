@@ -181,7 +181,7 @@ impl OP {
                 OP::decode_alu_op(b1, ALUType::Imm8)?
             }
             0xc7 | 0xd7 | 0xe7 | 0xf7 | 0xcf | 0xdf | 0xef | 0xff => {
-                let addr = b2 << 3;
+                let addr = b1 << 3;
                 match addr {
                     0x00 | 0x08 | 0x10 | 0x18 | 0x20 | 0x28 | 0x30 | 0x38 => OP::RST(addr as u16),
                     _ => bail!("Invalid RST addr: {:#02x}", addr),
@@ -262,28 +262,52 @@ impl OP {
 #[derive(Debug)]
 pub struct Instruction {
     pub op: OP,
-    pub len: u16,
+    pub len: u8,
     pub cycles: u64,
+    pub bytes: Vec<u8>,
 }
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?} [{}, {}]", self.op, self.len, self.cycles)
+        let bytes = self
+            .bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<Vec<String>>()
+            .join(" ");
+        write!(
+            f,
+            "{: >8} -> {:?} [{}, {}]",
+            bytes, self.op, self.len, self.cycles
+        )
     }
 }
 
 impl Instruction {
     pub fn from_byte(byte: u8, prefix: bool) -> Result<Self> {
-        let op = if !prefix {
-            OP::from_byte(byte)?
+        let (op, bytes) = if !prefix {
+            (OP::from_byte(byte)?, vec![byte])
         } else {
-            OP::from_prefix_byte(byte)
+            (OP::from_prefix_byte(byte), vec![0xcb, byte])
         };
         let (len, cycles) = Instruction::get_len_cycles(&op);
-        Ok(Instruction { op, len, cycles })
+        Ok(Instruction {
+            op,
+            len,
+            cycles,
+            bytes,
+        })
     }
 
-    fn get_len_cycles(op: &OP) -> (u16, u64) {
+    pub fn byte_arg(&self) -> u8 {
+        self.bytes[1]
+    }
+
+    pub fn word_arg(&self) -> u16 {
+        ((self.bytes[2] as u16) << 8) | (self.bytes[1] as u16)
+    }
+
+    fn get_len_cycles(op: &OP) -> (u8, u64) {
         match op {
             OP::NOP
             | OP::HALT

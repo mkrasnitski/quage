@@ -4,11 +4,13 @@ use sdl2::pixels::Color;
 
 use crate::display::*;
 
+#[derive(Default)]
 struct PPUInterrupts {
     vblank: bool,
     stat: bool,
 }
 
+#[derive(Default)]
 struct PPURegisters {
     LCDC: u8,
     LY: u8,
@@ -28,22 +30,8 @@ struct PPURegisters {
 impl PPURegisters {
     pub fn new() -> Self {
         PPURegisters {
-            LCDC: 0,
-            LY: 0,
-            LYC: 0,
             STAT: 0x80,
-            SCY: 0,
-            SCX: 0,
-            WY: 0,
-            WX: 0,
-            WC: 0,
-            BGP: 0,
-            OBP0: 0,
-            OBP1: 0,
-            interrupts: PPUInterrupts {
-                vblank: false,
-                stat: false,
-            },
+            ..Default::default()
         }
     }
 }
@@ -136,6 +124,7 @@ impl PPU {
                 self.cycles -= 70224;
                 self.enable_display_events = true;
                 self.display.draw(self.viewport);
+                // self.display.draw(self.dump_tiles(0x8000));
             }
             self.step();
         }
@@ -247,6 +236,24 @@ impl PPU {
             }
         }
         // TODO: Sprite rendering
+    }
+
+    fn dump_tiles(&self, base: u16) -> [[Color; 256]; 256] {
+        let mut bg = [[Color::WHITE; 256]; 256];
+        for i in 0..256 {
+            let tile_addr = base + i * 16;
+            let tile_y = i / 32;
+            let tile_x = i % 32;
+            for j in 0..8 {
+                let hi = self.read_byte(tile_addr + 2 * j + 1);
+                let lo = self.read_byte(tile_addr + 2 * j);
+                for k in 0..8 {
+                    bg[(8 * tile_y + j) as usize][(8 * tile_x + 7 - k) as usize] =
+                        self.decode_palette((((hi >> k) & 1) << 1) | ((lo >> k) & 1));
+                }
+            }
+        }
+        bg
     }
 
     fn decode_tile_row(&self, tile_num: u8, row_num: u8) -> [u8; 8] {
