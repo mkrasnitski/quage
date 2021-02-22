@@ -163,32 +163,8 @@ impl CPU {
     }
 
     fn increment_timers(&mut self, cycles_passed: u64) {
-        let total_cycles = self.cycles + cycles_passed;
-        let div_clocks = (total_cycles / 256 - self.cycles / 256) as u8;
-        if div_clocks > 0 {
-            self.bus
-                .write_byte(0xFF04, self.bus.read_byte(0xFF04).wrapping_add(div_clocks));
-        }
-        let TAC = self.bus.read_byte(0xFF07);
-        if TAC & 0b100 != 0 {
-            let clock = match TAC & 0b11 {
-                0 => 1024,
-                1 => 16,
-                2 => 64,
-                3 => 256,
-                _ => unreachable!(),
-            };
-
-            let timer_clocks = (total_cycles / clock - self.cycles / clock) as u8;
-            if timer_clocks > 0 {
-                let (TIMA, c) = self.bus.read_byte(0xFF05).overflowing_add(timer_clocks);
-                if c {
-                    self.bus.write_byte(0xFF05, self.bus.read_byte(0xFF06));
-                    self.request_interrupt(2);
-                } else {
-                    self.bus.write_byte(0xFF05, TIMA);
-                }
-            }
+        if self.bus.timers.increment(cycles_passed) {
+            self.request_interrupt(2);
         }
     }
 

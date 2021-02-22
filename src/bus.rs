@@ -4,6 +4,7 @@ use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
 
 use crate::ppu::*;
+use crate::timers::*;
 
 #[derive(Primitive)]
 pub enum MapperType {
@@ -144,26 +145,30 @@ impl Cartridge {
 
 pub struct MemoryBus {
     pub ppu: PPU,
-    memory: [u8; 0x10000],
+    pub timers: Timers,
     work_ram: [u8; 0x2000],
     hram: [u8; 0x7f],
     bootrom: Vec<u8>,
     cartridge: Cartridge,
     IE: u8,
     IF: u8,
+    dma_start: u8,
+    bootrom_switch: u8,
 }
 
 impl MemoryBus {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>) -> Result<Self> {
         Ok(MemoryBus {
             ppu: PPU::new()?,
-            memory: [0; 0x10000],
+            timers: Timers::default(),
             work_ram: [0; 0x2000],
             hram: [0; 0x7f],
             bootrom,
             cartridge: Cartridge::new(cartridge)?,
             IE: 0,
             IF: 0xE0,
+            dma_start: 0,
+            bootrom_switch: 0,
         })
     }
 
@@ -176,7 +181,7 @@ impl MemoryBus {
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => {
-                if addr < 0x100 && self.read_byte(0xff50) == 0 {
+                if addr < 0x100 && self.bootrom_switch == 0 {
                     return self.bootrom[addr as usize];
                 }
                 self.cartridge.read_rom_byte(addr)
@@ -187,13 +192,28 @@ impl MemoryBus {
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000],
             0xFE00..=0xFE9F => self.ppu.read_byte(addr),
             0xFEA0..=0xFEFF => 0xFF,
-            0xFF80..=0xFFEF => self.hram[addr as usize - 0xFF80],
+            0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80],
 
+            0xFF04..=0xFF07 => self.timers.read_byte(addr),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
-            0xFF4D => 0xFF,
+            0xFF46 => self.dma_start,
+            0xFF50 => self.bootrom_switch,
             0xFF0F => self.IF,
             0xFFFF => self.IE,
-            _ => self.memory[addr as usize],
+
+            // stubs
+            0xFF00 => 0xFF,          // joypad
+            0xFF01..=0xFF02 => 0x00, // serial
+            0xFF10..=0xFF26 => 0x00, // sound
+            0xFF30..=0xFF3F => 0x00, // waveform RAM
+
+            // unused on DMG:
+            // 0xFF03
+            // 0xFF08..=0xFF0E
+            // 0xFF27..=0xFF2F
+            // 0xFF4C..=0xFF4F
+            // 0xFF51..=0xFF7F
+            _ => 0xFF,
         }
     }
 
@@ -205,13 +225,27 @@ impl MemoryBus {
             0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000] = val,
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000] = val,
             0xFE00..=0xFE9F => self.ppu.write_byte(addr, val),
-            0xFF80..=0xFFEF => self.hram[addr as usize - 0xFF80] = val,
+            0xFEA0..=0xFEFF => {}
+            0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80] = val,
 
+            0xFF04..=0xFF07 => self.timers.write_byte(addr, val),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
-            // 0xFF46 => println!("DMA Transfer!!!"),
+            0xFF46 => {
+                self.dma_start = val;
+                // println!("DMA Transfer!!!");
+            }
+            0xFF50 => self.bootrom_switch = val,
             0xFF0F => self.IF = val | 0xE0,
             0xFFFF => self.IE = val,
-            _ => self.memory[addr as usize] = val,
+
+            // stubs
+            0xFF00 => {}          // joypad
+            0xFF01..=0xFF02 => {} // serial
+            0xFF10..=0xFF26 => {} // sound
+            0xFF30..=0xFF3F => {} // waveform RAM
+
+            // unused
+            _ => {}
         }
     }
 

@@ -5,6 +5,7 @@ mod flags;
 mod gb;
 mod instruction;
 mod ppu;
+mod timers;
 use anyhow::Result;
 use std::env;
 
