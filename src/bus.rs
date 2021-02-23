@@ -8,10 +8,16 @@ use crate::timers::*;
 
 #[derive(Primitive)]
 pub enum MapperType {
-    ROM = 0,
-    MBC1 = 1,
-    MBC1Ram = 2,
-    MBC1BattRam = 3,
+    ROM = 0x00,
+    MBC1 = 0x01,
+    MBC1Ram = 0x02,
+    MBC1BattRam = 0x03,
+    MBC3 = 0x11,
+    MBC3Ram = 0x12,
+    MBC3BattRam = 0x13,
+    MBC5 = 0x19,
+    MBC5Ram = 0x1A,
+    MBC5BattRam = 0x1B,
 }
 
 pub struct Mapper {
@@ -19,7 +25,7 @@ pub struct Mapper {
     num_rom_banks: u16,
     ram_size: u32,
     low_bank: u8,
-    high_bank: u8,
+    high_bank: u16,
     ram_bank: u8,
     ram_enabled: bool,
     flag: bool,
@@ -27,7 +33,7 @@ pub struct Mapper {
 
 impl Mapper {
     fn write_byte(&mut self, addr: u16, val: u8) {
-        let rom_mask = (1 << (((self.num_rom_banks - 1) as f32).log2() as u8 + 1)) - 1;
+        let rom_mask = (1u16 << (((self.num_rom_banks - 1) as f32).log2() as u8 + 1)) - 1;
         let ram_mask = if self.ram_size <= 8192 {
             0
         } else {
@@ -38,25 +44,47 @@ impl Mapper {
             MapperType::MBC1 | MapperType::MBC1Ram | MapperType::MBC1BattRam => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x3FFF => {
-                    let val = val & 0x1f;
+                    let val = val as u16 & 0x1f;
                     let bank_num = if val == 0 { 1 } else { val & rom_mask };
-                    self.high_bank = (self.high_bank & 0x60) | bank_num;
+                    self.high_bank = (self.high_bank & 0x60) | bank_num as u16;
                 }
                 0x4000..=0x5FFF => {
                     let val = val & 0b11;
-                    self.high_bank = ((val << 5) | (self.high_bank & 0x1f)) & rom_mask;
+                    self.high_bank = (((val << 5) as u16) | (self.high_bank & 0x1f)) & rom_mask;
                     if self.flag {
                         self.ram_bank = val & ram_mask;
-                        self.low_bank = (val << 5) & rom_mask;
+                        self.low_bank = (val << 5) & rom_mask as u8;
                     }
                 }
                 0x6000..=0x7FFF => self.flag = val != 0,
-                _ => panic!("Invalid write addr: {}", addr),
+                _ => panic!("Invalid MBC1 write addr: {:#04x}", addr),
+            },
+            MapperType::MBC3 | MapperType::MBC3Ram | MapperType::MBC3BattRam => match addr {
+                0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
+                0x2000..=0x3FFF => {
+                    let val = val as u16 & 0x7f;
+                    self.high_bank = if val == 0 { 1 } else { val & rom_mask };
+                }
+                0x4000..=0x5FFF => self.ram_bank = val & ram_mask,
+                0x6000..=0x7FFF => {} // RTC
+                _ => panic!("Invalid MBC3 write addr: {:#04x}", addr),
+            },
+            MapperType::MBC5 | MapperType::MBC5Ram | MapperType::MBC5BattRam => match addr {
+                0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
+                0x2000..=0x2FFF => {
+                    self.high_bank = ((self.high_bank & 0x100) | val as u16) & rom_mask
+                }
+                0x3000..=0x3FFF => {
+                    self.high_bank = (((val as u16 & 1) << 8) | (self.high_bank & 0xff)) & rom_mask
+                }
+                0x4000..=0x5FFF => self.ram_bank = val & ram_mask,
+                0x6000..=0x7FFF => println!("Ignoring write to addr {:#04x}: {}", addr, val),
+                _ => panic!("Invalid MBC5 write addr: {:#04x}", addr),
             },
         }
     }
 
-    fn get_high_bank(&self) -> u8 {
+    fn get_high_bank(&self) -> u16 {
         self.high_bank
     }
 
@@ -107,7 +135,7 @@ impl Cartridge {
             ram: vec![0; ram_size as usize],
             mapper: Mapper {
                 mapper_type: MapperType::from_u8(mapper)
-                    .ok_or_else(|| anyhow::anyhow!("Invalid Mapper: {}", mapper))?,
+                    .ok_or_else(|| anyhow::anyhow!("Invalid Mapper: {:#02x}", mapper))?,
                 num_rom_banks,
                 ram_size,
                 low_bank: 0,
@@ -232,7 +260,7 @@ impl MemoryBus {
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF46 => {
                 self.dma_start = val;
-                // println!("DMA Transfer!!!");
+                self.run_dma_transfer();
             }
             0xFF50 => self.bootrom_switch = val,
             0xFF0F => self.IF = val | 0xE0,
@@ -249,6 +277,16 @@ impl MemoryBus {
         }
     }
 
+    fn run_dma_transfer(&mut self) {
+        for i in 0..160 {
+            self.write_byte(
+                0xFE00 + i,
+                self.read_byte(((self.dma_start as u16) << 8) + i),
+            )
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn read_word(&self, addr: u16) -> u16 {
         ((self.read_byte(addr + 1) as u16) << 8) | (self.read_byte(addr) as u16)
     }

@@ -107,25 +107,31 @@ impl CPU {
             4
         } else {
             let state = self.state();
-            let byte = self.consume_byte();
-            let (byte, prefix) = if byte == 0xcb {
-                (self.consume_byte(), true)
-            } else {
-                (byte, false)
-            };
-            let mut instr = Instruction::from_byte(byte, prefix)?;
-            let args = self.consume_bytes(instr.len - instr.bytes.len() as u8);
-            instr.bytes.extend(args);
+            let mut instr = self.parse_next_instruction()?;
             self.execute(&mut instr);
             if DEBUG {
                 println!("{} {}", state, instr);
             }
             instr.cycles
         };
-        self.increment_timers(cycles_passed);
         self.bus.ppu.draw(cycles_passed);
+        self.increment_timers(cycles_passed);
+        // self.poll_joypad();
         self.cycles += cycles_passed;
         Ok(())
+    }
+
+    fn parse_next_instruction(&mut self) -> Result<Instruction> {
+        let byte = self.consume_byte();
+        let (byte, prefix) = if byte == 0xcb {
+            (self.consume_byte(), true)
+        } else {
+            (byte, false)
+        };
+        let mut instr = Instruction::from_byte(byte, prefix)?;
+        let args = self.consume_bytes(instr.len - instr.bytes.len() as u8);
+        instr.bytes.extend(args);
+        Ok(instr)
     }
 
     pub fn poll_display_event(&mut self) -> DisplayEvent {
@@ -168,6 +174,12 @@ impl CPU {
         }
     }
 
+    // fn poll_joypad(&mut self) {
+    //     if self.bus.poll_joypad() {
+    //         self.request_interrupt(4);
+    //     }
+    // }
+
     fn execute(&mut self, instr: &mut Instruction) {
         match instr.op {
             OP::NOP => (),
@@ -175,7 +187,7 @@ impl CPU {
             OP::HALT => {
                 let IE = self.bus.read_byte(0xFFFF);
                 let IF = self.bus.read_byte(0xFF0F);
-                if self.ime == false && (IE & IF & 0x1F) != 0 {
+                if !self.ime && (IE & IF & 0x1F) != 0 {
                     self.halt_bug = true;
                 } else {
                     self.halted = true;
