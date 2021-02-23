@@ -7,11 +7,9 @@ use sdl2::render::Canvas;
 use sdl2::video::Window;
 use std::time::{Duration, Instant};
 
-// pub const W_WIDTH: usize = 256;
-// pub const W_HEIGHT: usize = 256;
 pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
-const W_SCALE: usize = 2;
+const W_SCALE: usize = 3;
 const LIMIT_FRAMERATE: bool = true;
 
 pub enum DisplayEvent {

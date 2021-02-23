@@ -87,14 +87,8 @@ impl PPU {
             0xFF40 => self.registers.LCDC = val,
             0xFF41 => self.registers.STAT |= val & !7,
             0xFF42 => self.registers.SCY = val,
-            0xFF43 => {
-                // println!("LY {} SCX {}", self.registers.LY, val);
-                self.registers.SCX = val;
-            }
-            0xFF45 => {
-                // println!("LYC {}", val);
-                self.registers.LYC = val;
-            }
+            0xFF43 => self.registers.SCX = val,
+            0xFF45 => self.registers.LYC = val,
             0xFF47 => self.registers.BGP = val,
             0xFF48 => self.registers.OBP0 = val,
             0xFF49 => self.registers.OBP1 = val,

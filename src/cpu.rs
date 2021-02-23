@@ -116,7 +116,6 @@ impl CPU {
         };
         self.bus.ppu.draw(cycles_passed);
         self.increment_timers(cycles_passed);
-        // self.poll_joypad();
         self.cycles += cycles_passed;
         Ok(())
     }
@@ -135,7 +134,7 @@ impl CPU {
     }
 
     pub fn poll_display_event(&mut self) -> DisplayEvent {
-        self.bus.ppu.poll_display_event()
+        self.bus.poll_display_event()
     }
 
     fn request_interrupt(&mut self, int: u8) {
@@ -173,12 +172,6 @@ impl CPU {
             self.request_interrupt(2);
         }
     }
-
-    // fn poll_joypad(&mut self) {
-    //     if self.bus.poll_joypad() {
-    //         self.request_interrupt(4);
-    //     }
-    // }
 
     fn execute(&mut self, instr: &mut Instruction) {
         match instr.op {

@@ -4,6 +4,7 @@ mod display;
 mod flags;
 mod gb;
 mod instruction;
+mod joypad;
 mod ppu;
 mod timers;
 use anyhow::Result;

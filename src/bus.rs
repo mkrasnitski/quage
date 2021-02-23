@@ -3,6 +3,8 @@ use anyhow::{bail, Result};
 use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
 
+use crate::display::*;
+use crate::joypad::*;
 use crate::ppu::*;
 use crate::timers::*;
 
@@ -78,7 +80,7 @@ impl Mapper {
                     self.high_bank = (((val as u16 & 1) << 8) | (self.high_bank & 0xff)) & rom_mask
                 }
                 0x4000..=0x5FFF => self.ram_bank = val & ram_mask,
-                0x6000..=0x7FFF => println!("Ignoring write to addr {:#04x}: {}", addr, val),
+                0x6000..=0x7FFF => {}
                 _ => panic!("Invalid MBC5 write addr: {:#04x}", addr),
             },
         }
@@ -174,6 +176,7 @@ impl Cartridge {
 pub struct MemoryBus {
     pub ppu: PPU,
     pub timers: Timers,
+    pub joypad: Joypad,
     work_ram: [u8; 0x2000],
     hram: [u8; 0x7f],
     bootrom: Vec<u8>,
@@ -193,6 +196,7 @@ impl MemoryBus {
             hram: [0; 0x7f],
             bootrom,
             cartridge: Cartridge::new(cartridge)?,
+            joypad: Joypad::default(),
             IE: 0,
             IF: 0xE0,
             dma_start: 0,
@@ -202,8 +206,18 @@ impl MemoryBus {
 
     pub fn check_interrupts(&mut self) {
         let (vblank, stat) = self.ppu.check_interrupts();
-        self.IF |= vblank as u8;
-        self.IF |= (stat as u8) << 1;
+        let joypad = self.joypad.poll();
+        self.IF = (self.IF & 0xC) | (vblank as u8) | ((stat as u8) << 1) | ((joypad as u8) << 4);
+    }
+
+    pub fn poll_display_event(&mut self) -> DisplayEvent {
+        let event = self.ppu.poll_display_event();
+        if let DisplayEvent::KeyEvent((key, pressed)) = &event {
+            if self.joypad.is_valid_key(key) {
+                self.joypad.update_key(key, *pressed);
+            }
+        }
+        event
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
@@ -222,6 +236,7 @@ impl MemoryBus {
             0xFEA0..=0xFEFF => 0xFF,
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80],
 
+            0xFF00 => self.joypad.read(),
             0xFF04..=0xFF07 => self.timers.read_byte(addr),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
             0xFF46 => self.dma_start,
@@ -230,7 +245,6 @@ impl MemoryBus {
             0xFFFF => self.IE,
 
             // stubs
-            0xFF00 => 0xFF,          // joypad
             0xFF01..=0xFF02 => 0x00, // serial
             0xFF10..=0xFF26 => 0x00, // sound
             0xFF30..=0xFF3F => 0x00, // waveform RAM
@@ -256,6 +270,7 @@ impl MemoryBus {
             0xFEA0..=0xFEFF => {}
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80] = val,
 
+            0xFF00 => self.joypad.write(val),
             0xFF04..=0xFF07 => self.timers.write_byte(addr, val),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF46 => {
@@ -267,7 +282,6 @@ impl MemoryBus {
             0xFFFF => self.IE = val,
 
             // stubs
-            0xFF00 => {}          // joypad
             0xFF01..=0xFF02 => {} // serial
             0xFF10..=0xFF26 => {} // sound
             0xFF30..=0xFF3F => {} // waveform RAM
