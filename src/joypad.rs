@@ -12,17 +12,21 @@ pub struct Joypad {
     direction: bool,
     buttons: bool,
 
-    request_interrupt: bool,
+    request_buttons_interrupt: bool,
+    request_direction_interrupt: bool,
 }
 
 impl Joypad {
     pub fn poll(&mut self) -> bool {
-        if self.request_interrupt && (self.buttons || self.direction) {
-            self.request_interrupt = false;
-            true
-        } else {
-            false
+        if self.request_buttons_interrupt && self.buttons {
+            self.request_buttons_interrupt = false;
+            return true;
         }
+        if self.request_direction_interrupt && self.direction {
+            self.request_direction_interrupt = false;
+            return true;
+        }
+        return false;
     }
 
     pub fn is_valid_key(&self, key: &String) -> bool {
@@ -46,7 +50,11 @@ impl Joypad {
             _ => {}
         }
 
-        self.request_interrupt = pressed;
+        match &key[..] {
+            "P" | "L" | ";" | "'" => self.request_direction_interrupt = pressed,
+            "X" | "Z" | "Return" | "Backspace" => self.request_buttons_interrupt = pressed,
+            _ => {}
+        }
     }
 
     pub fn read(&self) -> u8 {
