@@ -2,17 +2,26 @@
 
 #[derive(Default)]
 pub struct Timers {
-    pub DIV: u8,
+    pub DIV: u16,
     pub TIMA: u8,
     pub TMA: u8,
     pub TAC: u8,
-    cycles: u64,
+    and_result: bool,
+    tima_overflow: bool,
+    tima_overflow_cycles: u8,
 }
 
 impl Timers {
+    pub fn new() -> Self {
+        Timers {
+            TAC: 0xf8,
+            ..Default::default()
+        }
+    }
+
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0xFF04 => self.DIV,
+            0xFF04 => self.DIV as u8,
             0xFF05 => self.TIMA,
             0xFF06 => self.TMA,
             0xFF07 => self.TAC,
@@ -22,38 +31,50 @@ impl Timers {
 
     pub fn write_byte(&mut self, addr: u16, val: u8) {
         match addr {
-            0xFF04 => self.DIV = val,
+            0xFF04 => self.DIV = 0,
             0xFF05 => self.TIMA = val,
+
             0xFF06 => self.TMA = val,
-            0xFF07 => self.TAC = val,
+            0xFF07 => self.TAC = val | 0xf8,
             _ => panic!("Invalid timer register write: {:02x}", addr),
         }
     }
 
-    pub fn increment(&mut self, cycles_passed: u64) -> bool {
+    pub fn increment(&mut self) -> bool {
         let mut interrupt = false;
-        let total_cycles = self.cycles + cycles_passed;
-        let div_clocks = (total_cycles / 256 - self.cycles / 256) as u8;
-        self.DIV = self.DIV.wrapping_add(div_clocks);
-        if self.TAC & 0b100 != 0 {
-            let clock = match self.TAC & 0b11 {
-                0 => 1024,
-                1 => 16,
-                2 => 64,
-                3 => 256,
+        for _ in 0..4 {
+            self.DIV = self.DIV.wrapping_add(1);
+            let bit_position = match self.TAC & 0b11 {
+                0 => 9,
+                1 => 3,
+                2 => 5,
+                3 => 7,
                 _ => unreachable!(),
             };
+            let bit = self.DIV & (1 << bit_position) != 0;
+            let new_and_result = bit && (self.TAC & 0b100 != 0);
 
-            let timer_clocks = (total_cycles / clock - self.cycles / clock) as u8;
-            let (new_TIMA, c) = self.TIMA.overflowing_add(timer_clocks);
-            if c {
+            // TIMA overflow is delayed by 4 T-cycles
+            if self.tima_overflow_cycles == 4 {
+                self.tima_overflow = false;
+                self.tima_overflow_cycles = 0;
                 self.TIMA = self.TMA;
-                interrupt = true;
-            } else {
-                self.TIMA = new_TIMA;
+                interrupt = true
             }
+            if self.tima_overflow {
+                self.tima_overflow_cycles += 1;
+            }
+
+            // increment TIMA falling edge of AND result
+            if self.and_result && !new_and_result {
+                let (new_TIMA, c) = self.TIMA.overflowing_add(1);
+                self.TIMA = new_TIMA;
+                if c {
+                    self.tima_overflow = true;
+                }
+            }
+            self.and_result = new_and_result;
         }
-        self.cycles += cycles_passed;
         interrupt
     }
 }

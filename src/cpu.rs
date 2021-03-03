@@ -57,6 +57,8 @@ impl CPU {
             cpu.registers.l = 0x4d;
             cpu.registers.f = Flags::from(0xb0);
             cpu.sp = 0xfffe;
+            // TODO: figure out Timer reg values if skipping bootrom
+            // cpu.bus.write_byte(0xff04, 0xAC);
             cpu.bus.write_byte(0xff10, 0x80);
             cpu.bus.write_byte(0xff11, 0xbf);
             cpu.bus.write_byte(0xff12, 0xf3);
@@ -114,8 +116,11 @@ impl CPU {
             }
             instr.cycles
         };
-        self.bus.ppu.draw(cycles_passed);
-        self.increment_timers(cycles_passed);
+        for _ in 0..cycles_passed / 4 {
+            self.increment_timers();
+            self.bus.ppu.draw();
+            self.bus.increment_rtc();
+        }
         self.cycles += cycles_passed;
         Ok(())
     }
@@ -167,8 +172,8 @@ impl CPU {
         }
     }
 
-    fn increment_timers(&mut self, cycles_passed: u64) {
-        if self.bus.timers.increment(cycles_passed) {
+    fn increment_timers(&mut self) {
+        if self.bus.timers.increment() {
             self.request_interrupt(2);
         }
     }

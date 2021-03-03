@@ -6,6 +6,7 @@ mod gb;
 mod instruction;
 mod joypad;
 mod ppu;
+mod rtc;
 mod timers;
 use anyhow::Result;
 use std::env;

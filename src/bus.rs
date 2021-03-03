@@ -6,6 +6,7 @@ use num_traits::FromPrimitive;
 use crate::display::*;
 use crate::joypad::*;
 use crate::ppu::*;
+use crate::rtc::*;
 use crate::timers::*;
 
 #[derive(Primitive)]
@@ -14,6 +15,8 @@ pub enum MapperType {
     MBC1 = 0x01,
     MBC1Ram = 0x02,
     MBC1BattRam = 0x03,
+    MBC3RTC = 0x0F,
+    MBC3RamRTC = 0x10,
     MBC3 = 0x11,
     MBC3Ram = 0x12,
     MBC3BattRam = 0x13,
@@ -31,55 +34,85 @@ pub struct Mapper {
     ram_bank: u8,
     ram_enabled: bool,
     flag: bool,
+
+    rtc: RTC,
+    rtc_enabled: bool,
+    rtc_register: u8,
+    prepare_rtc_latch: bool,
 }
 
 impl Mapper {
     fn write_byte(&mut self, addr: u16, val: u8) {
-        let rom_mask = (1u16 << (((self.num_rom_banks - 1) as f32).log2() as u8 + 1)) - 1;
-        let ram_mask = if self.ram_size <= 8192 {
-            0
-        } else {
-            (1 << (((self.ram_size - 1) as f32 / 8192.0).log2() as u8 + 1)) - 1
-        };
+        let num_ram_banks = (self.ram_size as f64 / 8192.0).ceil() as u8;
         match self.mapper_type {
             MapperType::ROM => (),
             MapperType::MBC1 | MapperType::MBC1Ram | MapperType::MBC1BattRam => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x3FFF => {
                     let val = val as u16 & 0x1f;
-                    let bank_num = if val == 0 { 1 } else { val & rom_mask };
+                    let bank_num = if val == 0 {
+                        1
+                    } else {
+                        val % self.num_rom_banks
+                    };
                     self.high_bank = (self.high_bank & 0x60) | bank_num as u16;
                 }
                 0x4000..=0x5FFF => {
                     let val = val & 0b11;
-                    self.high_bank = (((val << 5) as u16) | (self.high_bank & 0x1f)) & rom_mask;
+                    self.high_bank =
+                        (((val << 5) as u16) | (self.high_bank & 0x1f)) % self.num_rom_banks;
                     if self.flag {
-                        self.ram_bank = val & ram_mask;
-                        self.low_bank = (val << 5) & rom_mask as u8;
+                        if self.ram_size > 0 {
+                            self.ram_bank = val % num_ram_banks;
+                        }
+                        self.low_bank = (val << 5) % self.num_rom_banks as u8;
                     }
                 }
                 0x6000..=0x7FFF => self.flag = val != 0,
                 _ => panic!("Invalid MBC1 write addr: {:#04x}", addr),
             },
-            MapperType::MBC3 | MapperType::MBC3Ram | MapperType::MBC3BattRam => match addr {
+            MapperType::MBC3
+            | MapperType::MBC3Ram
+            | MapperType::MBC3BattRam
+            | MapperType::MBC3RTC
+            | MapperType::MBC3RamRTC => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x3FFF => {
-                    let val = val as u16 & 0x7f;
-                    self.high_bank = if val == 0 { 1 } else { val & rom_mask };
+                    let val = (val as u16 & 0x7f) % self.num_rom_banks;
+                    self.high_bank = if val == 0 { 1 } else { val };
                 }
-                0x4000..=0x5FFF => self.ram_bank = val & ram_mask,
-                0x6000..=0x7FFF => {} // RTC
+                0x4000..=0x5FFF => {
+                    if val < 0x04 {
+                        self.ram_bank = val;
+                        self.rtc_enabled = false;
+                    } else if val >= 0x08 && val <= 0x0C {
+                        self.rtc_register = val;
+                        self.rtc_enabled = true;
+                    } else {
+                        panic!("Invalid ram bank {:02x}", val);
+                    }
+                }
+                0x6000..=0x7FFF => {
+                    if val == 0 && !self.prepare_rtc_latch {
+                        self.prepare_rtc_latch = true;
+                    }
+                    if val == 1 && self.prepare_rtc_latch {
+                        self.prepare_rtc_latch = false;
+                        self.rtc.update_latched_state();
+                    }
+                }
                 _ => panic!("Invalid MBC3 write addr: {:#04x}", addr),
             },
             MapperType::MBC5 | MapperType::MBC5Ram | MapperType::MBC5BattRam => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x2FFF => {
-                    self.high_bank = ((self.high_bank & 0x100) | val as u16) & rom_mask
+                    self.high_bank = ((self.high_bank & 0x100) | val as u16) % self.num_rom_banks
                 }
                 0x3000..=0x3FFF => {
-                    self.high_bank = (((val as u16 & 1) << 8) | (self.high_bank & 0xff)) & rom_mask
+                    self.high_bank =
+                        (((val as u16 & 1) << 8) | (self.high_bank & 0xff)) % self.num_rom_banks
                 }
-                0x4000..=0x5FFF => self.ram_bank = val & ram_mask,
+                0x4000..=0x5FFF => self.ram_bank = val % num_ram_banks,
                 0x6000..=0x7FFF => {}
                 _ => panic!("Invalid MBC5 write addr: {:#04x}", addr),
             },
@@ -143,8 +176,13 @@ impl Cartridge {
                 low_bank: 0,
                 high_bank: 1,
                 ram_bank: 0,
-                ram_enabled: false,
                 flag: false,
+
+                rtc: RTC::default(),
+                ram_enabled: false,
+                rtc_enabled: false,
+                rtc_register: 0,
+                prepare_rtc_latch: false,
             },
         })
     }
@@ -158,8 +196,15 @@ impl Cartridge {
     }
 
     pub fn read_ram_byte(&self, addr: u16) -> u8 {
+        let addr = addr as usize - 0xA000;
         if self.mapper.ram_enabled {
-            self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr as usize - 0xA000]
+            if self.mapper.rtc_enabled {
+                self.mapper.rtc.read_byte(self.mapper.rtc_register)
+            } else if addr < self.mapper.ram_size as usize {
+                self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr]
+            } else {
+                0xFF
+            }
         } else {
             0xFF
         }
@@ -167,8 +212,12 @@ impl Cartridge {
 
     pub fn write_ram_byte(&mut self, addr: u16, val: u8) {
         let addr = addr as usize - 0xA000;
-        if self.mapper.ram_enabled && addr < self.ram.len() {
-            self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr] = val
+        if self.mapper.ram_enabled {
+            if self.mapper.rtc_enabled {
+                self.mapper.rtc.write_byte(self.mapper.rtc_register, val);
+            } else if addr < self.mapper.ram_size as usize {
+                self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr] = val;
+            }
         }
     }
 }
@@ -191,7 +240,7 @@ impl MemoryBus {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>) -> Result<Self> {
         Ok(MemoryBus {
             ppu: PPU::new()?,
-            timers: Timers::default(),
+            timers: Timers::new(),
             work_ram: [0; 0x2000],
             hram: [0; 0x7f],
             bootrom,
@@ -207,7 +256,20 @@ impl MemoryBus {
     pub fn check_interrupts(&mut self) {
         let (vblank, stat) = self.ppu.check_interrupts();
         let joypad = self.joypad.poll();
-        self.IF = (self.IF & 0xC) | (vblank as u8) | ((stat as u8) << 1) | ((joypad as u8) << 4);
+        self.write_byte(
+            0xFF0F,
+            (self.read_byte(0xFF0F) & 0x1F)
+                | (vblank as u8)
+                | ((stat as u8) << 1)
+                | ((joypad as u8) << 4),
+        );
+    }
+
+    pub fn increment_rtc(&mut self) {
+        match self.cartridge.mapper.mapper_type {
+            MapperType::MBC3RTC | MapperType::MBC3RamRTC => self.cartridge.mapper.rtc.increment(),
+            _ => {}
+        }
     }
 
     pub fn poll_display_event(&mut self) -> DisplayEvent {
@@ -215,6 +277,8 @@ impl MemoryBus {
         if let DisplayEvent::KeyEvent((key, pressed)) = &event {
             if self.joypad.is_valid_key(key) {
                 self.joypad.update_key(key, *pressed);
+            } else if key == "Space" && *pressed {
+                self.ppu.toggle_frame_limiter();
             }
         }
         event
@@ -240,18 +304,20 @@ impl MemoryBus {
             0xFF04..=0xFF07 => self.timers.read_byte(addr),
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
             0xFF46 => self.dma_start,
-            0xFF50 => self.bootrom_switch,
+            0xFF50 => 0xFF, // read-only
             0xFF0F => self.IF,
             0xFFFF => self.IE,
 
             // stubs
             0xFF01..=0xFF02 => 0x00, // serial
-            0xFF10..=0xFF26 => 0x00, // sound
+            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 => 0x00, // sound
             0xFF30..=0xFF3F => 0x00, // waveform RAM
 
             // unused on DMG:
             // 0xFF03
             // 0xFF08..=0xFF0E
+            // 0xFF15
+            // 0xFF1F
             // 0xFF27..=0xFF2F
             // 0xFF4C..=0xFF4F
             // 0xFF51..=0xFF7F
@@ -277,7 +343,12 @@ impl MemoryBus {
                 self.dma_start = val;
                 self.run_dma_transfer();
             }
-            0xFF50 => self.bootrom_switch = val,
+            0xFF50 => {
+                // Only written to once
+                if self.bootrom_switch == 0 {
+                    self.bootrom_switch = val
+                }
+            }
             0xFF0F => self.IF = val | 0xE0,
             0xFFFF => self.IE = val,
 

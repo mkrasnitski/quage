@@ -10,7 +10,48 @@ use std::time::{Duration, Instant};
 pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
 const W_SCALE: usize = 3;
-const LIMIT_FRAMERATE: bool = true;
+
+pub struct DisplayManager {
+    context: sdl2::Sdl,
+    event_pump: sdl2::EventPump,
+}
+
+impl DisplayManager {
+    pub fn new() -> Result<Self> {
+        let context = sdl2::init().map_err(Error::msg)?;
+        let event_pump = context.event_pump().map_err(Error::msg)?;
+        Ok(DisplayManager {
+            context,
+            event_pump,
+        })
+    }
+
+    pub fn new_display(&self) -> Result<Display> {
+        Display::new(&self.context)
+    }
+
+    pub fn poll_event(&mut self) -> DisplayEvent {
+        for event in self.event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => return DisplayEvent::Quit,
+                Event::KeyDown {
+                    keycode: Some(x),
+                    repeat: false,
+                    ..
+                } => return DisplayEvent::KeyEvent((x.name(), true)),
+                Event::KeyUp {
+                    keycode: Some(x), ..
+                } => return DisplayEvent::KeyEvent((x.name(), false)),
+                _ => continue,
+            }
+        }
+        DisplayEvent::None
+    }
+}
 
 pub enum DisplayEvent {
     KeyEvent((String, bool)),
@@ -22,18 +63,17 @@ pub struct Display {
     frames: u64,
     time: Instant,
     last_frame: Instant,
-    event_pump: sdl2::EventPump,
+    limit_framerate: bool,
     canvas: Canvas<Window>,
 }
 
 impl Display {
-    pub fn new() -> Result<Self> {
-        let context = sdl2::init().map_err(Error::msg)?;
+    pub fn new(context: &sdl2::Sdl) -> Result<Self> {
         Ok(Display {
             frames: 0,
             time: Instant::now(),
             last_frame: Instant::now(),
-            event_pump: context.event_pump().map_err(Error::msg)?,
+            limit_framerate: true,
             canvas: context
                 .video()
                 .map_err(Error::msg)?
@@ -47,6 +87,10 @@ impl Display {
                 .into_canvas()
                 .build()?,
         })
+    }
+
+    pub fn toggle_frame_limiter(&mut self) {
+        self.limit_framerate = !self.limit_framerate;
     }
 
     pub fn draw(&mut self, pixels: [[Color; W_WIDTH]; W_HEIGHT]) {
@@ -72,7 +116,7 @@ impl Display {
         }
         self.canvas.present();
         self.frames += 1;
-        if LIMIT_FRAMERATE {
+        if self.limit_framerate {
             while Instant::now().duration_since(self.last_frame)
                 < Duration::from_secs_f64(70224.0 / 4194304.0)
             {
@@ -86,27 +130,5 @@ impl Display {
             self.frames = 0;
             self.time = Instant::now();
         }
-    }
-
-    pub fn poll_event(&mut self) -> DisplayEvent {
-        for event in self.event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => return DisplayEvent::Quit,
-                Event::KeyDown {
-                    keycode: Some(x),
-                    repeat: false,
-                    ..
-                } => return DisplayEvent::KeyEvent((x.name(), true)),
-                Event::KeyUp {
-                    keycode: Some(x), ..
-                } => return DisplayEvent::KeyEvent((x.name(), false)),
-                _ => continue,
-            }
-        }
-        DisplayEvent::None
     }
 }

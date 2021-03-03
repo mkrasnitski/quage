@@ -39,25 +39,32 @@ impl PPURegisters {
 pub struct PPU {
     pub memory: [u8; 0x2000],
     pub oam: [u8; 0xA0],
+    pub display_manager: DisplayManager,
     viewport: [[Color; W_WIDTH]; W_HEIGHT],
     registers: PPURegisters,
     display: Display,
+    // tile_display: Display,
     enable_display_events: bool,
     block_stat_irqs: bool,
-    cycles: u64,
+    dots: u64,
 }
 
 impl PPU {
     pub fn new() -> Result<Self> {
+        let display_manager = DisplayManager::new()?;
+        // let tile_display = display_manager.new_display()?;
+        let display = display_manager.new_display()?;
         Ok(PPU {
             memory: [0; 0x2000],
             oam: [0; 0xA0],
             viewport: [[Color::WHITE; W_WIDTH]; W_HEIGHT],
             registers: PPURegisters::new(),
-            display: Display::new()?,
+            display_manager,
+            display,
+            // tile_display,
             enable_display_events: false,
             block_stat_irqs: false,
-            cycles: 0,
+            dots: 0,
         })
     }
 
@@ -101,7 +108,7 @@ impl PPU {
     pub fn poll_display_event(&mut self) -> DisplayEvent {
         if self.enable_display_events {
             self.enable_display_events = false;
-            self.display.poll_event()
+            self.display_manager.poll_event()
         } else {
             DisplayEvent::None
         }
@@ -117,53 +124,54 @@ impl PPU {
         res
     }
 
-    pub fn draw(&mut self, cycles_passed: u64) {
-        for _ in 0..cycles_passed / 4 {
-            self.cycles += 4;
-            if self.cycles > 70224 {
-                self.cycles -= 70224;
-                self.enable_display_events = true;
-                self.display.draw(self.viewport);
-                // self.display.draw(self.dump_tiles(0x9000));
-            }
-            self.step();
+    pub fn toggle_frame_limiter(&mut self) {
+        self.display.toggle_frame_limiter();
+        // self.tile_display.toggle_frame_limiter();
+    }
+
+    pub fn draw(&mut self) {
+        self.dots += 1;
+        if self.dots == 17556 {
+            self.dots = 0;
+            self.enable_display_events = true;
+            self.display.draw(self.viewport);
+            // self.tile_display.draw(self.dump_tiles(0x9000));
         }
+        self.step();
     }
 
     fn step(&mut self) {
-        let clocks = self.cycles % 456;
-        let scanline = (self.cycles / 456) as u8;
+        let clocks = self.dots % 114;
+        let scanline = (self.dots / 114) as u8;
 
         // Start of a line
-        if scanline != self.registers.LY {
+        if clocks == 0 {
             self.block_stat_irqs = false;
             if scanline == 0 {
                 self.registers.WC = 0;
             }
             self.registers.LY = scanline;
-            let coincidence = self.registers.LY == self.registers.LYC;
-            if coincidence {
-                self.req_stat_interrupt(6);
-            }
-            self.registers.STAT &= !(1 << 2);
-            self.registers.STAT |= (coincidence as u8) << 2;
+            self.check_LY_coincidence(self.registers.LY);
+        }
+        if self.registers.LY == 153 && clocks == 1 {
+            self.check_LY_coincidence(0);
         }
 
         // PPU Mode switching
         if self.registers.LY < 144 {
             match clocks {
                 0 => self.set_mode(2), // OAM Search
-                80 => {
+                20 => {
                     self.set_mode(3); // Drawing
                     self.draw_line();
                 }
-                252 => self.set_mode(0), // H-blank
+                64 => self.set_mode(0), // H-blank
                 _ => {}
             }
-        }
-        // V-blank
-        else if self.registers.LY == 144 && clocks == 0 {
-            self.registers.interrupts.vblank = true;
+        } else {
+            if self.registers.LY == 144 && clocks == 0 {
+                self.registers.interrupts.vblank = true;
+            }
             self.set_mode(1);
         }
     }
@@ -174,6 +182,15 @@ impl PPU {
         if mode < 3 {
             self.req_stat_interrupt(mode + 3);
         }
+    }
+
+    fn check_LY_coincidence(&mut self, line: u8) {
+        let coincidence = line == self.registers.LYC;
+        if coincidence {
+            self.req_stat_interrupt(6);
+        }
+        self.registers.STAT &= !(1 << 2);
+        self.registers.STAT |= (coincidence as u8) << 2;
     }
 
     fn req_stat_interrupt(&mut self, bit: u8) {
@@ -282,7 +299,7 @@ impl PPU {
                         } else {
                             j
                         };
-                        let obj_x = sprite_x as usize + j - 8;
+                        let obj_x = (sprite_x as usize + j).wrapping_sub(8);
                         let color_num = sprite_tile_row[col_num];
                         if (0..W_WIDTH).contains(&obj_x)
                             && color_num != 0
