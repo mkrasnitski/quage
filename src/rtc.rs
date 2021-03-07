@@ -1,5 +1,5 @@
-#[derive(Default, Debug, Copy, Clone)]
-pub struct RTCState {
+#[derive(Default, Debug, Clone)]
+struct RTCState {
     seconds: u8,
     minutes: u8,
     hours: u8,

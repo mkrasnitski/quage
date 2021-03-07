@@ -20,23 +20,23 @@ impl Joypad {
     pub fn poll(&mut self) -> bool {
         if self.request_buttons_interrupt && self.buttons {
             self.request_buttons_interrupt = false;
-            return true;
-        }
-        if self.request_direction_interrupt && self.direction {
+            true
+        } else if self.request_direction_interrupt && self.direction {
             self.request_direction_interrupt = false;
-            return true;
-        }
-        return false;
-    }
-
-    pub fn is_valid_key(&self, key: &String) -> bool {
-        match &key[..] {
-            "P" | "L" | ";" | "\'" | "X" | "Z" | "Return" | "Backspace" => true,
-            _ => false,
+            true
+        } else {
+            false
         }
     }
 
-    pub fn update_key(&mut self, key: &String, pressed: bool) {
+    pub fn is_valid_key(&self, key: &str) -> bool {
+        matches!(
+            &key[..],
+            "P" | "L" | ";" | "\'" | "X" | "Z" | "Return" | "Backspace"
+        )
+    }
+
+    pub fn update_key(&mut self, key: &str, pressed: bool) {
         assert!(self.is_valid_key(key));
         match &key[..] {
             "P" => self.up = pressed,

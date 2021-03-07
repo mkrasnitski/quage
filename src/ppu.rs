@@ -24,7 +24,6 @@ struct PPURegisters {
     BGP: u8,
     OBP0: u8,
     OBP1: u8,
-    interrupts: PPUInterrupts,
 }
 
 impl PPURegisters {
@@ -40,8 +39,9 @@ pub struct PPU {
     pub memory: [u8; 0x2000],
     pub oam: [u8; 0xA0],
     pub display_manager: DisplayManager,
-    viewport: [[Color; W_WIDTH]; W_HEIGHT],
     registers: PPURegisters,
+    interrupts: PPUInterrupts,
+    viewport: [[Color; W_WIDTH]; W_HEIGHT],
     display: Display,
     // tile_display: Display,
     enable_display_events: bool,
@@ -59,6 +59,7 @@ impl PPU {
             oam: [0; 0xA0],
             viewport: [[Color::WHITE; W_WIDTH]; W_HEIGHT],
             registers: PPURegisters::new(),
+            interrupts: PPUInterrupts::default(),
             display_manager,
             display,
             // tile_display,
@@ -115,12 +116,9 @@ impl PPU {
     }
 
     pub fn check_interrupts(&mut self) -> (bool, bool) {
-        let res = (
-            self.registers.interrupts.vblank,
-            self.registers.interrupts.stat,
-        );
-        self.registers.interrupts.vblank = false;
-        self.registers.interrupts.stat = false;
+        let res = (self.interrupts.vblank, self.interrupts.stat);
+        self.interrupts.vblank = false;
+        self.interrupts.stat = false;
         res
     }
 
@@ -170,7 +168,7 @@ impl PPU {
             }
         } else {
             if self.registers.LY == 144 && clocks == 0 {
-                self.registers.interrupts.vblank = true;
+                self.interrupts.vblank = true;
             }
             self.set_mode(1);
         }
@@ -199,7 +197,7 @@ impl PPU {
             && (3..=6).contains(&bit)
         {
             self.block_stat_irqs = true;
-            self.registers.interrupts.stat = true;
+            self.interrupts.stat = true;
         }
     }
 
@@ -348,7 +346,7 @@ impl PPU {
                 0x9000
             } else {
                 0x8000
-            } + tile_num as u16 * 16
+            } + 16 * tile_num as u16
                 + 2 * row_num as u16;
         let hi = self.read_byte(tile_row_offset + 1);
         let lo = self.read_byte(tile_row_offset);

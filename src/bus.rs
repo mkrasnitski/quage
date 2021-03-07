@@ -10,7 +10,7 @@ use crate::rtc::*;
 use crate::timers::*;
 
 #[derive(Primitive)]
-pub enum MapperType {
+enum MapperType {
     ROM = 0x00,
     MBC1 = 0x01,
     MBC1Ram = 0x02,
@@ -25,7 +25,7 @@ pub enum MapperType {
     MBC5BattRam = 0x1B,
 }
 
-pub struct Mapper {
+struct Mapper {
     mapper_type: MapperType,
     num_rom_banks: u16,
     ram_size: u32,
@@ -140,7 +140,7 @@ impl Mapper {
     }
 }
 
-pub struct Cartridge {
+struct Cartridge {
     contents: Vec<u8>,
     ram: Vec<u8>,
     mapper: Mapper,
@@ -292,11 +292,10 @@ impl MemoryBus {
                 }
                 self.cartridge.read_rom_byte(addr)
             }
-            0x8000..=0x9FFF => self.ppu.read_byte(addr),
+            0x8000..=0x9FFF | 0xFE00..=0xFE9F => self.ppu.read_byte(addr),
             0xA000..=0xBFFF => self.cartridge.read_ram_byte(addr),
             0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000],
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000],
-            0xFE00..=0xFE9F => self.ppu.read_byte(addr),
             0xFEA0..=0xFEFF => 0xFF,
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80],
 
@@ -309,9 +308,10 @@ impl MemoryBus {
             0xFFFF => self.IE,
 
             // stubs
-            0xFF01..=0xFF02 => 0x00, // serial
+            0xFF01 => 0x00, // serial
+            0xFF02 => 0x7E,
             0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 => 0x00, // sound
-            0xFF30..=0xFF3F => 0x00, // waveform RAM
+            0xFF30..=0xFF3F => 0x00,                                     // waveform RAM
 
             // unused on DMG:
             // 0xFF03
@@ -328,11 +328,10 @@ impl MemoryBus {
     pub fn write_byte(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x7FFF => self.cartridge.mapper.write_byte(addr, val),
-            0x8000..=0x9FFF => self.ppu.write_byte(addr, val),
+            0x8000..=0x9FFF | 0xFE00..=0xFE9F => self.ppu.write_byte(addr, val),
             0xA000..=0xBFFF => self.cartridge.write_ram_byte(addr, val),
             0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000] = val,
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000] = val,
-            0xFE00..=0xFE9F => self.ppu.write_byte(addr, val),
             0xFEA0..=0xFEFF => {}
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80] = val,
 
@@ -353,9 +352,9 @@ impl MemoryBus {
             0xFFFF => self.IE = val,
 
             // stubs
-            0xFF01..=0xFF02 => {} // serial
-            0xFF10..=0xFF26 => {} // sound
-            0xFF30..=0xFF3F => {} // waveform RAM
+            0xFF01..=0xFF02 => {}                                     // serial
+            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 => {} // sound
+            0xFF30..=0xFF3F => {}                                     // waveform RAM
 
             // unused
             _ => {}

@@ -23,6 +23,19 @@ impl std::convert::From<u8> for Flags {
     }
 }
 
+impl std::fmt::Display for Flags {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}",
+            if self.z { "Z" } else { "-" },
+            if self.n { "N" } else { "-" },
+            if self.h { "H" } else { "-" },
+            if self.c { "C" } else { "-" },
+        )
+    }
+}
+
 pub trait HalfCarry {
     fn overflowing_hc_add(&self, rhs: Self) -> (Self, bool, bool)
     where

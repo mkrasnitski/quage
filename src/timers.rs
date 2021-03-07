@@ -21,7 +21,7 @@ impl Timers {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0xFF04 => self.DIV as u8,
+            0xFF04 => (self.DIV >> 8) as u8,
             0xFF05 => self.TIMA,
             0xFF06 => self.TMA,
             0xFF07 => self.TAC,
@@ -33,48 +33,46 @@ impl Timers {
         match addr {
             0xFF04 => self.DIV = 0,
             0xFF05 => self.TIMA = val,
-
             0xFF06 => self.TMA = val,
             0xFF07 => self.TAC = val | 0xf8,
             _ => panic!("Invalid timer register write: {:02x}", addr),
         }
     }
 
+    // Increment DIV by 1 T-cycle
     pub fn increment(&mut self) -> bool {
         let mut interrupt = false;
-        for _ in 0..4 {
-            self.DIV = self.DIV.wrapping_add(1);
-            let bit_position = match self.TAC & 0b11 {
-                0 => 9,
-                1 => 3,
-                2 => 5,
-                3 => 7,
-                _ => unreachable!(),
-            };
-            let bit = self.DIV & (1 << bit_position) != 0;
-            let new_and_result = bit && (self.TAC & 0b100 != 0);
+        self.DIV = self.DIV.wrapping_add(1);
+        let bit_position = match self.TAC & 0b11 {
+            0 => 9,
+            1 => 3,
+            2 => 5,
+            3 => 7,
+            _ => unreachable!(),
+        };
+        let bit = self.DIV & (1 << bit_position) != 0;
+        let new_and_result = bit && (self.TAC & 0b100 != 0);
 
-            // TIMA overflow is delayed by 4 T-cycles
-            if self.tima_overflow_cycles == 4 {
-                self.tima_overflow = false;
-                self.tima_overflow_cycles = 0;
-                self.TIMA = self.TMA;
-                interrupt = true
-            }
-            if self.tima_overflow {
-                self.tima_overflow_cycles += 1;
-            }
-
-            // increment TIMA falling edge of AND result
-            if self.and_result && !new_and_result {
-                let (new_TIMA, c) = self.TIMA.overflowing_add(1);
-                self.TIMA = new_TIMA;
-                if c {
-                    self.tima_overflow = true;
-                }
-            }
-            self.and_result = new_and_result;
+        // TIMA overflow is delayed by 4 T-cycles
+        if self.tima_overflow_cycles == 4 {
+            self.tima_overflow = false;
+            self.tima_overflow_cycles = 0;
+            self.TIMA = self.TMA;
+            interrupt = true
         }
+        if self.tima_overflow {
+            self.tima_overflow_cycles += 1;
+        }
+
+        // increment TIMA falling edge of AND result
+        if self.and_result && !new_and_result {
+            let (new_TIMA, c) = self.TIMA.overflowing_add(1);
+            self.TIMA = new_TIMA;
+            if c {
+                self.tima_overflow = true;
+            }
+        }
+        self.and_result = new_and_result;
         interrupt
     }
 }

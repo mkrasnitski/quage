@@ -13,9 +13,9 @@ use std::env;
 
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        anyhow::bail!("Please provide a cartridge.")
+    if args.len() < 3 {
+        anyhow::bail!("Please provide a bootrom and cartridge.")
     }
-    let mut gb = gb::GameBoy::new("dmg_boot.bin", &args[1])?;
+    let mut gb = gb::GameBoy::new(&args[1], &args[2])?;
     gb.run()
 }

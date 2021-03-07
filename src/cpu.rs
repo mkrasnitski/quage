@@ -8,12 +8,8 @@ use crate::instruction::*;
 
 const DEBUG: bool = false;
 
-fn signed_offset_u16(x: u16, y: u8) -> u16 {
-    (x as i16 + y as i8 as i16) as u16
-}
-
 #[derive(Default)]
-pub struct Registers {
+struct Registers {
     a: u8,
     b: u8,
     c: u8,
@@ -87,19 +83,8 @@ impl CPU {
     fn state(&self) -> String {
         let r = &self.registers;
         format!(
-            "{:04x} {: >2} {:04x} {} {:04b} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
-            self.pc,
-            self.cycles,
-            self.sp,
-            self.ime,
-            u8::from(r.f) >> 4,
-            r.a,
-            r.b,
-            r.c,
-            r.d,
-            r.e,
-            r.h,
-            r.l,
+            "{: >2} {:04x} {:04x} {} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
+            self.cycles, self.pc, self.sp, r.f, r.a, r.b, r.c, r.d, r.e, r.h, r.l,
         )
     }
 
@@ -173,8 +158,10 @@ impl CPU {
     }
 
     fn increment_timers(&mut self) {
-        if self.bus.timers.increment() {
-            self.request_interrupt(2);
+        for _ in 0..4 {
+            if self.bus.timers.increment() {
+                self.request_interrupt(2);
+            }
         }
     }
 
@@ -370,7 +357,7 @@ impl CPU {
 
             OP::JR(condition) => {
                 if self.check_branch_condition(condition) {
-                    self.pc = signed_offset_u16(self.pc, instr.byte_arg());
+                    self.pc = self.pc.wrapping_add(instr.byte_arg() as i8 as u16);
                     instr.cycles += 4;
                 }
             }
