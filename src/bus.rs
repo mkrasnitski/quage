@@ -7,6 +7,7 @@ use crate::display::*;
 use crate::joypad::*;
 use crate::ppu::*;
 use crate::rtc::*;
+use crate::sound::*;
 use crate::timers::*;
 
 #[derive(Primitive)]
@@ -226,6 +227,7 @@ pub struct MemoryBus {
     pub ppu: PPU,
     pub timers: Timers,
     pub joypad: Joypad,
+    pub sound: Sound,
     work_ram: [u8; 0x2000],
     hram: [u8; 0x7f],
     bootrom: Vec<u8>,
@@ -241,11 +243,12 @@ impl MemoryBus {
         Ok(MemoryBus {
             ppu: PPU::new()?,
             timers: Timers::new(),
+            joypad: Joypad::default(),
+            sound: Sound::new(),
+            cartridge: Cartridge::new(cartridge)?,
             work_ram: [0; 0x2000],
             hram: [0; 0x7f],
             bootrom,
-            cartridge: Cartridge::new(cartridge)?,
-            joypad: Joypad::default(),
             IE: 0,
             IF: 0xE0,
             dma_start: 0,
@@ -301,6 +304,9 @@ impl MemoryBus {
 
             0xFF00 => self.joypad.read(),
             0xFF04..=0xFF07 => self.timers.read_byte(addr),
+            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 | 0xFF30..=0xFF3F => {
+                self.sound.read_byte(addr)
+            }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
             0xFF46 => self.dma_start,
             0xFF50 => 0xFF, // read-only
@@ -310,8 +316,6 @@ impl MemoryBus {
             // stubs
             0xFF01 => 0x00, // serial
             0xFF02 => 0x7E,
-            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 => 0x00, // sound
-            0xFF30..=0xFF3F => 0x00,                                     // waveform RAM
 
             // unused on DMG:
             // 0xFF03
@@ -337,6 +341,9 @@ impl MemoryBus {
 
             0xFF00 => self.joypad.write(val),
             0xFF04..=0xFF07 => self.timers.write_byte(addr, val),
+            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 | 0xFF30..=0xFF3F => {
+                self.sound.write_byte(addr, val)
+            }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF46 => {
                 self.dma_start = val;
@@ -352,9 +359,7 @@ impl MemoryBus {
             0xFFFF => self.IE = val,
 
             // stubs
-            0xFF01..=0xFF02 => {}                                     // serial
-            0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 => {} // sound
-            0xFF30..=0xFF3F => {}                                     // waveform RAM
+            0xFF01 | 0xFF02 => {} // serial
 
             // unused
             _ => {}
