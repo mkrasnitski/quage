@@ -2,6 +2,9 @@
 use anyhow::{bail, Result};
 use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
 
 use crate::display::*;
 use crate::joypad::*;
@@ -16,6 +19,8 @@ enum MapperType {
     MBC1 = 0x01,
     MBC1Ram = 0x02,
     MBC1BattRam = 0x03,
+    MBC2 = 0x05,
+    MBC2Batt = 0x06,
     MBC3RTC = 0x0F,
     MBC3RamRTC = 0x10,
     MBC3 = 0x11,
@@ -71,6 +76,21 @@ impl Mapper {
                 }
                 0x6000..=0x7FFF => self.flag = val != 0,
                 _ => panic!("Invalid MBC1 write addr: {:#04x}", addr),
+            },
+            MapperType::MBC2 | MapperType::MBC2Batt => match addr {
+                0x0000..=0x3FFF => {
+                    if (addr >> 8) & 1 == 0 {
+                        self.ram_enabled = (val & 0xf) == 0xA;
+                    } else {
+                        self.high_bank = if val & 0xF == 0 {
+                            1
+                        } else {
+                            (val as u16) % self.num_rom_banks
+                        };
+                    }
+                }
+                0x4000..=0x7FFF => {}
+                _ => panic!("Invalid MBC2 write addr: {:#04x}", addr),
             },
             MapperType::MBC3
             | MapperType::MBC3Ram
@@ -152,11 +172,16 @@ impl Cartridge {
         let mapper = cart[0x147];
         let size = cart[0x148];
         let ram = cart[0x149];
+
+        let mapper_type = MapperType::from_u8(mapper)
+            .ok_or_else(|| anyhow::anyhow!("Invalid Mapper: {:#02x}", mapper))?;
         let num_rom_banks = match size {
             0x00..=0x08 => 2 << size,
             _ => bail!("Invalid ROM Size: {:#02x}", size),
         };
-        let ram_size = 1024
+
+        let mut ram_init_val = 0;
+        let mut ram_size = 1024
             * match ram {
                 0x00 => 0,
                 0x01 => 2,
@@ -166,12 +191,15 @@ impl Cartridge {
                 0x05 => 64,
                 _ => bail!("Invalid RAM Size: {:#02x}", ram),
             };
+        if let MapperType::MBC2 | MapperType::MBC2Batt = mapper_type {
+            ram_init_val = 0xf0;
+            ram_size = 4096;
+        };
         Ok(Cartridge {
             contents: cart,
-            ram: vec![0; ram_size as usize],
+            ram: vec![ram_init_val; ram_size as usize],
             mapper: Mapper {
-                mapper_type: MapperType::from_u8(mapper)
-                    .ok_or_else(|| anyhow::anyhow!("Invalid Mapper: {:#02x}", mapper))?,
+                mapper_type,
                 num_rom_banks,
                 ram_size,
                 low_bank: 0,
@@ -201,6 +229,8 @@ impl Cartridge {
         if self.mapper.ram_enabled {
             if self.mapper.rtc_enabled {
                 self.mapper.rtc.read_byte(self.mapper.rtc_register)
+            } else if let MapperType::MBC2 | MapperType::MBC2Batt = self.mapper.mapper_type {
+                self.ram[addr % 0x200]
             } else if addr < self.mapper.ram_size as usize {
                 self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr]
             } else {
@@ -216,6 +246,8 @@ impl Cartridge {
         if self.mapper.ram_enabled {
             if self.mapper.rtc_enabled {
                 self.mapper.rtc.write_byte(self.mapper.rtc_register, val);
+            } else if let MapperType::MBC2 | MapperType::MBC2Batt = self.mapper.mapper_type {
+                self.ram[addr % 0x200] = val | 0xf0;
             } else if addr < self.mapper.ram_size as usize {
                 self.ram[self.mapper.get_ram_bank() as usize * 0x2000 + addr] = val;
             }
@@ -366,15 +398,6 @@ impl MemoryBus {
         }
     }
 
-    fn run_dma_transfer(&mut self) {
-        for i in 0..160 {
-            self.write_byte(
-                0xFE00 + i,
-                self.read_byte(((self.dma_start as u16) << 8) + i),
-            )
-        }
-    }
-
     #[allow(dead_code)]
     pub fn read_word(&self, addr: u16) -> u16 {
         ((self.read_byte(addr + 1) as u16) << 8) | (self.read_byte(addr) as u16)
@@ -383,5 +406,45 @@ impl MemoryBus {
     pub fn write_word(&mut self, addr: u16, val: u16) {
         self.write_byte(addr, val as u8);
         self.write_byte(addr + 1, (val >> 8) as u8)
+    }
+
+    pub fn load_external_ram(&mut self, filename: &Path) {
+        match self.cartridge.mapper.mapper_type {
+            MapperType::MBC1BattRam
+            | MapperType::MBC2Batt
+            | MapperType::MBC3BattRam
+            | MapperType::MBC3RamRTC
+            | MapperType::MBC5BattRam => {
+                if let Ok(mut file) = File::open(filename) {
+                    file.read(&mut self.cartridge.ram).unwrap();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn save_external_ram(&self, filename: &Path) {
+        match self.cartridge.mapper.mapper_type {
+            MapperType::MBC1BattRam
+            | MapperType::MBC2Batt
+            | MapperType::MBC3BattRam
+            | MapperType::MBC3RamRTC
+            | MapperType::MBC5BattRam => {
+                File::create(filename)
+                    .unwrap()
+                    .write_all(&self.cartridge.ram)
+                    .unwrap();
+            }
+            _ => {}
+        }
+    }
+
+    fn run_dma_transfer(&mut self) {
+        for i in 0..160 {
+            self.write_byte(
+                0xFE00 + i,
+                self.read_byte(((self.dma_start as u16) << 8) + i),
+            )
+        }
     }
 }

@@ -21,7 +21,7 @@ impl Timers {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0xFF04 => (self.DIV >> 8) as u8,
+            0xFF04 => (self.DIV >> 6) as u8,
             0xFF05 => self.TIMA,
             0xFF06 => self.TMA,
             0xFF07 => self.TAC,
@@ -39,22 +39,22 @@ impl Timers {
         }
     }
 
-    // Increment DIV by 1 T-cycle
+    // Increment DIV by 1 M-cycle
     pub fn increment(&mut self) -> bool {
         let mut interrupt = false;
         self.DIV = self.DIV.wrapping_add(1);
         let bit_position = match self.TAC & 0b11 {
-            0 => 9,
-            1 => 3,
-            2 => 5,
-            3 => 7,
+            0 => 7,
+            1 => 1,
+            2 => 3,
+            3 => 5,
             _ => unreachable!(),
         };
         let bit = self.DIV & (1 << bit_position) != 0;
         let new_and_result = bit && (self.TAC & 0b100 != 0);
 
-        // TIMA overflow is delayed by 4 T-cycles
-        if self.tima_overflow_cycles == 4 {
+        // TIMA overflow is delayed by 1 M-cycle
+        if self.tima_overflow_cycles == 1 {
             self.tima_overflow = false;
             self.tima_overflow_cycles = 0;
             self.TIMA = self.TMA;

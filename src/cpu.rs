@@ -2,7 +2,6 @@
 use anyhow::Result;
 
 use crate::bus::*;
-use crate::display::*;
 use crate::flags::*;
 use crate::instruction::*;
 
@@ -21,6 +20,8 @@ struct Registers {
 }
 
 pub struct CPU {
+    pub bus: MemoryBus,
+    registers: Registers,
     pc: u16,
     sp: u16,
     cycles: u64,
@@ -28,8 +29,6 @@ pub struct CPU {
     ime: bool,
     halted: bool,
     halt_bug: bool,
-    registers: Registers,
-    bus: MemoryBus,
 }
 
 impl CPU {
@@ -123,10 +122,6 @@ impl CPU {
         Ok(instr)
     }
 
-    pub fn poll_display_event(&mut self) -> DisplayEvent {
-        self.bus.poll_display_event()
-    }
-
     fn request_interrupt(&mut self, int: u8) {
         if int < 5 {
             self.bus
@@ -158,17 +153,15 @@ impl CPU {
     }
 
     fn increment_timers(&mut self) {
-        for _ in 0..4 {
-            if self.bus.timers.increment() {
-                self.request_interrupt(2);
-            }
+        if self.bus.timers.increment() {
+            self.request_interrupt(2);
         }
     }
 
     fn execute(&mut self, instr: &mut Instruction) {
         match instr.op {
             OP::NOP => (),
-            OP::STOP => panic!("\nSTOP\n"),
+            OP::STOP => panic!("STOP"),
             OP::HALT => {
                 let IE = self.bus.read_byte(0xFFFF);
                 let IF = self.bus.read_byte(0xFF0F);

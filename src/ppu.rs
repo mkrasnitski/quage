@@ -47,6 +47,7 @@ pub struct PPU {
     enable_display_events: bool,
     block_stat_irqs: bool,
     dots: u64,
+    cycles: u64,
 }
 
 impl PPU {
@@ -66,6 +67,7 @@ impl PPU {
             enable_display_events: false,
             block_stat_irqs: false,
             dots: 0,
+            cycles: 0,
         })
     }
 
@@ -128,14 +130,23 @@ impl PPU {
     }
 
     pub fn draw(&mut self) {
-        self.dots += 1;
-        if self.dots == 17556 {
-            self.dots = 0;
+        if self.cycles == 17556 {
+            self.cycles = 0;
             self.enable_display_events = true;
             self.display.draw(self.viewport);
             // self.tile_display.draw(self.dump_tiles(0x9000));
         }
-        self.step();
+
+        // Keep drawing a blank screen while the LCD is turned off
+        // This means occasionally decoupling the display "cycles"
+        // from the number of LCD dots that have passed.
+        if self.registers.LCDC & (1 << 7) != 0 {
+            self.cycles = self.dots + 1;
+            self.dots = (self.dots + 1) % 17556;
+            self.step();
+        } else {
+            self.cycles += 1;
+        }
     }
 
     fn step(&mut self) {
