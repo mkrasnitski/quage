@@ -94,7 +94,14 @@ impl PPU {
         match addr {
             0x8000..=0x9FFF => self.memory[addr as usize - 0x8000] = val,
             0xFE00..=0xFE9F => self.oam[addr as usize - 0xFE00] = val,
-            0xFF40 => self.registers.LCDC = val,
+            0xFF40 => {
+                self.registers.LCDC = val;
+                if val & (1 << 7) == 0 {
+                    self.dots = 0;
+                    self.registers.LY = 0;
+                    self.set_mode(0);
+                }
+            }
             0xFF41 => self.registers.STAT |= val & !7,
             0xFF42 => self.registers.SCY = val,
             0xFF43 => self.registers.SCX = val,
@@ -141,9 +148,9 @@ impl PPU {
         // This means occasionally decoupling the display "cycles"
         // from the number of LCD dots that have passed.
         if self.registers.LCDC & (1 << 7) != 0 {
+            self.step();
             self.cycles = self.dots + 1;
             self.dots = (self.dots + 1) % 17556;
-            self.step();
         } else {
             self.cycles += 1;
         }
@@ -213,9 +220,9 @@ impl PPU {
     }
 
     fn draw_line(&mut self) {
-        // LCD Enable
         let mut scanline = [0; W_WIDTH];
         let mut palettes = [0; W_WIDTH];
+        // LCD Enable
         if self.registers.LCDC & (1 << 7) != 0 {
             if self.registers.LCDC & 1 != 0 {
                 // Background
