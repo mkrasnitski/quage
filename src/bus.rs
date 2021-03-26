@@ -267,6 +267,9 @@ pub struct MemoryBus {
     IE: u8,
     IF: u8,
     dma_start: u8,
+    dma_byte: u8,
+    dma_cycles: u8,
+    dma_running: bool,
     bootrom_switch: u8,
 }
 
@@ -284,6 +287,9 @@ impl MemoryBus {
             IE: 0,
             IF: 0xE0,
             dma_start: 0,
+            dma_byte: 0,
+            dma_cycles: 0,
+            dma_running: false,
             bootrom_switch: 0,
         })
     }
@@ -298,6 +304,21 @@ impl MemoryBus {
                 | ((stat as u8) << 1)
                 | ((joypad as u8) << 4),
         );
+    }
+
+    pub fn increment_dma(&mut self) {
+        if self.dma_running {
+            if self.dma_cycles > 0 {
+                let i = self.dma_cycles as u16 - 1;
+                self.dma_byte = self.read_byte(((self.dma_start as u16) << 8) + i);
+                self.write_byte(0xFE00 + i, self.dma_byte);
+            }
+            self.dma_cycles += 1;
+            if self.dma_cycles == 161 {
+                self.dma_cycles = 0;
+                self.dma_running = false;
+            }
+        }
     }
 
     pub fn increment_rtc(&mut self) {
@@ -379,7 +400,8 @@ impl MemoryBus {
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF46 => {
                 self.dma_start = val;
-                self.run_dma_transfer();
+                self.dma_cycles = 0;
+                self.dma_running = true;
             }
             0xFF50 => {
                 // Only written to once
@@ -398,16 +420,6 @@ impl MemoryBus {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn read_word(&self, addr: u16) -> u16 {
-        ((self.read_byte(addr + 1) as u16) << 8) | (self.read_byte(addr) as u16)
-    }
-
-    pub fn write_word(&mut self, addr: u16, val: u16) {
-        self.write_byte(addr, val as u8);
-        self.write_byte(addr + 1, (val >> 8) as u8)
-    }
-
     pub fn load_external_ram(&mut self, filename: &Path) {
         match self.cartridge.mapper.mapper_type {
             MapperType::MBC1BattRam
@@ -416,7 +428,7 @@ impl MemoryBus {
             | MapperType::MBC3RamRTC
             | MapperType::MBC5BattRam => {
                 if let Ok(mut file) = File::open(filename) {
-                    file.read(&mut self.cartridge.ram).unwrap();
+                    file.read_exact(&mut self.cartridge.ram).unwrap();
                 }
             }
             _ => {}
@@ -436,15 +448,6 @@ impl MemoryBus {
                     .unwrap();
             }
             _ => {}
-        }
-    }
-
-    fn run_dma_transfer(&mut self) {
-        for i in 0..160 {
-            self.write_byte(
-                0xFE00 + i,
-                self.read_byte(((self.dma_start as u16) << 8) + i),
-            )
         }
     }
 }

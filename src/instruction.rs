@@ -299,14 +299,6 @@ impl Instruction {
         })
     }
 
-    pub fn byte_arg(&self) -> u8 {
-        self.bytes[1]
-    }
-
-    pub fn word_arg(&self) -> u16 {
-        ((self.bytes[2] as u16) << 8) | (self.bytes[1] as u16)
-    }
-
     fn get_len_cycles(op: &OP) -> (u8, u64) {
         match op {
             OP::NOP

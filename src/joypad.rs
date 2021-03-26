@@ -31,14 +31,14 @@ impl Joypad {
 
     pub fn is_valid_key(&self, key: &str) -> bool {
         matches!(
-            &key[..],
+            key,
             "P" | "L" | ";" | "\'" | "X" | "Z" | "Return" | "Backspace"
         )
     }
 
     pub fn update_key(&mut self, key: &str, pressed: bool) {
         assert!(self.is_valid_key(key));
-        match &key[..] {
+        match key {
             "P" => self.up = pressed,
             "L" => self.left = pressed,
             ";" => self.down = pressed,
@@ -50,7 +50,7 @@ impl Joypad {
             _ => {}
         }
 
-        match &key[..] {
+        match key {
             "P" | "L" | ";" | "'" => self.request_direction_interrupt = pressed,
             "X" | "Z" | "Return" | "Backspace" => self.request_buttons_interrupt = pressed,
             _ => {}
