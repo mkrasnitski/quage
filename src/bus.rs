@@ -297,20 +297,14 @@ impl MemoryBus {
     pub fn check_interrupts(&mut self) {
         let (vblank, stat) = self.ppu.check_interrupts();
         let joypad = self.joypad.poll();
-        self.write_byte(
-            0xFF0F,
-            (self.read_byte(0xFF0F) & 0x1F)
-                | (vblank as u8)
-                | ((stat as u8) << 1)
-                | ((joypad as u8) << 4),
-        );
+        self.IF = (self.IF & 0x1F) | (vblank as u8) | ((stat as u8) << 1) | ((joypad as u8) << 4);
     }
 
     pub fn increment_dma(&mut self) {
         if self.dma_running {
             if self.dma_cycles > 0 {
                 let i = self.dma_cycles as u16 - 1;
-                self.dma_byte = self.read_byte(((self.dma_start as u16) << 8) + i);
+                self.dma_byte = self.read_byte_direct(((self.dma_start as u16) << 8) + i);
                 self.write_byte(0xFE00 + i, self.dma_byte);
             }
             self.dma_cycles += 1;
@@ -341,6 +335,21 @@ impl MemoryBus {
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
+        if self.dma_conflict(addr) {
+            println!("DMA Conflict! {:04x} {:02x}", addr, self.dma_start);
+            self.dma_byte
+        } else {
+            self.read_byte_direct(addr)
+        }
+    }
+
+    pub fn write_byte(&mut self, addr: u16, val: u8) {
+        if !self.dma_conflict(addr) {
+            self.write_byte_direct(addr, val);
+        }
+    }
+
+    fn read_byte_direct(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => {
                 if addr < 0x100 && self.bootrom_switch == 0 {
@@ -348,10 +357,12 @@ impl MemoryBus {
                 }
                 self.cartridge.read_rom_byte(addr)
             }
-            0x8000..=0x9FFF | 0xFE00..=0xFE9F => self.ppu.read_byte(addr),
+            0x8000..=0x9FFF => self.ppu.read_byte(addr),
             0xA000..=0xBFFF => self.cartridge.read_ram_byte(addr),
             0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000],
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000],
+
+            0xFE00..=0xFE9F => self.ppu.read_byte(addr),
             0xFEA0..=0xFEFF => 0xFF,
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80],
 
@@ -382,13 +393,15 @@ impl MemoryBus {
         }
     }
 
-    pub fn write_byte(&mut self, addr: u16, val: u8) {
+    fn write_byte_direct(&mut self, addr: u16, val: u8) {
         match addr {
             0x0000..=0x7FFF => self.cartridge.mapper.write_byte(addr, val),
-            0x8000..=0x9FFF | 0xFE00..=0xFE9F => self.ppu.write_byte(addr, val),
+            0x8000..=0x9FFF => self.ppu.write_byte(addr, val),
             0xA000..=0xBFFF => self.cartridge.write_ram_byte(addr, val),
             0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000] = val,
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000] = val,
+
+            0xFE00..=0xFE9F => self.ppu.write_byte(addr, val),
             0xFEA0..=0xFEFF => {}
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80] = val,
 
@@ -418,6 +431,17 @@ impl MemoryBus {
             // unused
             _ => {}
         }
+    }
+
+    fn dma_conflict(&self, addr: u16) -> bool {
+        self.dma_running
+            && match addr {
+                0x0000..=0x7FFF | 0xA000..=0xFDFF => {
+                    self.dma_start < 0x7F || (0xA0..=0xFD).contains(&self.dma_start)
+                }
+                0x8000..=0x9FFF => (0x80..=0x9F).contains(&self.dma_start),
+                0xFE00..=0xFFFF => false,
+            }
     }
 
     pub fn load_external_ram(&mut self, filename: &Path) {
