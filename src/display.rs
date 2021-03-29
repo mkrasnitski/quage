@@ -117,10 +117,10 @@ impl Display {
         self.canvas.present();
         self.frames += 1;
         if self.limit_framerate {
-            while Instant::now().duration_since(self.last_frame)
-                < Duration::from_secs_f64(70224.0 / 4194304.0)
-            {
-                continue;
+            let passed = Instant::now().duration_since(self.last_frame);
+            let frame_time = Duration::from_secs_f64(70224.0 / 4194304.0);
+            if passed < frame_time {
+                std::thread::sleep(frame_time - passed);
             }
         }
         self.last_frame = Instant::now();

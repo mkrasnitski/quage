@@ -52,8 +52,7 @@ impl CPU {
             cpu.registers.l = 0x4d;
             cpu.registers.f = Flags::from(0xb0);
             cpu.sp = 0xfffe;
-            // TODO: figure out Timer reg values if skipping bootrom
-            // cpu.bus.write_byte(0xff04, 0xAC);
+            cpu.bus.timers.DIV = 0x6AF9;
             cpu.bus.write_byte(0xff10, 0x80);
             cpu.bus.write_byte(0xff11, 0xbf);
             cpu.bus.write_byte(0xff12, 0xf3);

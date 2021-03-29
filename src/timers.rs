@@ -7,8 +7,6 @@ pub struct Timers {
     pub TMA: u8,
     pub TAC: u8,
     and_result: bool,
-    tima_overflow: bool,
-    tima_overflow_cycles: u8,
 }
 
 impl Timers {
@@ -53,23 +51,13 @@ impl Timers {
         let bit = self.DIV & (1 << bit_position) != 0;
         let new_and_result = bit && (self.TAC & 0b100 != 0);
 
-        // TIMA overflow is delayed by 1 M-cycle
-        if self.tima_overflow_cycles == 1 {
-            self.tima_overflow = false;
-            self.tima_overflow_cycles = 0;
-            self.TIMA = self.TMA;
-            interrupt = true
-        }
-        if self.tima_overflow {
-            self.tima_overflow_cycles += 1;
-        }
-
         // increment TIMA falling edge of AND result
         if self.and_result && !new_and_result {
             let (new_TIMA, c) = self.TIMA.overflowing_add(1);
             self.TIMA = new_TIMA;
             if c {
-                self.tima_overflow = true;
+                self.TIMA = self.TMA;
+                interrupt = true;
             }
         }
         self.and_result = new_and_result;

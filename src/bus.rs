@@ -278,10 +278,10 @@ impl MemoryBus {
         Ok(MemoryBus {
             ppu: PPU::new()?,
             timers: Timers::new(),
-            joypad: Joypad::default(),
+            joypad: Joypad::new(),
             sound: Sound::new(),
             cartridge: Cartridge::new(cartridge)?,
-            work_ram: [0; 0x2000],
+            work_ram: rand::random(),
             hram: [0; 0x7f],
             bootrom,
             IE: 0,
@@ -297,7 +297,7 @@ impl MemoryBus {
     pub fn check_interrupts(&mut self) {
         let (vblank, stat) = self.ppu.check_interrupts();
         let joypad = self.joypad.poll();
-        self.IF = (self.IF & 0x1F) | (vblank as u8) | ((stat as u8) << 1) | ((joypad as u8) << 4);
+        self.IF |= (vblank as u8) | ((stat as u8) << 1) | ((joypad as u8) << 4);
     }
 
     pub fn increment_dma(&mut self) {
@@ -305,12 +305,13 @@ impl MemoryBus {
             if self.dma_cycles > 0 {
                 let i = self.dma_cycles as u16 - 1;
                 self.dma_byte = self.read_byte_direct(((self.dma_start as u16) << 8) + i);
-                self.write_byte(0xFE00 + i, self.dma_byte);
+                self.write_byte_direct(0xFE00 + i, self.dma_byte);
             }
-            self.dma_cycles += 1;
-            if self.dma_cycles == 161 {
+            if self.dma_cycles == 160 {
                 self.dma_cycles = 0;
                 self.dma_running = false;
+            } else {
+                self.dma_cycles += 1;
             }
         }
     }
@@ -336,7 +337,7 @@ impl MemoryBus {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         if self.dma_conflict(addr) {
-            println!("DMA Conflict! {:04x} {:02x}", addr, self.dma_start);
+            // println!("DMA Conflict! {:04x} {:02x}", addr, self.dma_start);
             self.dma_byte
         } else {
             self.read_byte_direct(addr)
@@ -363,7 +364,7 @@ impl MemoryBus {
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000],
 
             0xFE00..=0xFE9F => self.ppu.read_byte(addr),
-            0xFEA0..=0xFEFF => 0xFF,
+            0xFEA0..=0xFEFF => 0x00,
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80],
 
             0xFF00 => self.joypad.read(),

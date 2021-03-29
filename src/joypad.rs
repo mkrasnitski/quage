@@ -17,6 +17,14 @@ pub struct Joypad {
 }
 
 impl Joypad {
+    pub fn new() -> Self {
+        Joypad {
+            direction: true,
+            buttons: true,
+            ..Default::default()
+        }
+    }
+
     pub fn poll(&mut self) -> bool {
         if self.request_buttons_interrupt && self.buttons {
             self.request_buttons_interrupt = false;

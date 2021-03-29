@@ -71,6 +71,17 @@ impl PPU {
         })
     }
 
+    fn memory_lock(&self, addr: u16) -> bool {
+        let mode = self.registers.STAT & 0b11;
+        if (0x8000..=0x9FFF).contains(&addr) {
+            mode < 3
+        } else if (0xFE00..=0xFE9F).contains(&addr) {
+            mode < 2
+        } else {
+            false
+        }
+    }
+
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x8000..=0x9FFF => self.memory[addr as usize - 0x8000],
