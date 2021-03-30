@@ -17,6 +17,21 @@ struct Registers {
     f: Flags,
     h: u8,
     l: u8,
+
+    queue_ime: bool,
+    ime: bool,
+    halted: bool,
+    halt_bug: bool,
+}
+
+impl std::fmt::Debug for Registers {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
+            self.f, self.a, self.b, self.c, self.d, self.e, self.h, self.l
+        )
+    }
 }
 
 pub struct CPU {
@@ -25,24 +40,26 @@ pub struct CPU {
     pc: u16,
     sp: u16,
     cycles: u64,
-    queue_ime: bool,
-    ime: bool,
-    halted: bool,
-    halt_bug: bool,
+}
+
+impl std::fmt::Debug for CPU {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "{: >2} {:04x} {:04x} {:?}",
+            self.cycles, self.pc, self.sp, self.registers
+        )
+    }
 }
 
 impl CPU {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, skip_bootrom: bool) -> Result<Self> {
         let mut cpu = CPU {
+            bus: MemoryBus::new(bootrom, cartridge)?,
+            registers: Registers::default(),
             pc: 0,
             sp: 0,
             cycles: 0,
-            queue_ime: false,
-            ime: false,
-            halted: false,
-            halt_bug: false,
-            registers: Registers::default(),
-            bus: MemoryBus::new(bootrom, cartridge)?,
         };
         if skip_bootrom {
             cpu.registers.a = 0x01;
@@ -78,20 +95,12 @@ impl CPU {
         Ok(cpu)
     }
 
-    fn state(&self) -> String {
-        let r = &self.registers;
-        format!(
-            "{: >2} {:04x} {:04x} {} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
-            self.cycles, self.pc, self.sp, r.f, r.a, r.b, r.c, r.d, r.e, r.h, r.l,
-        )
-    }
-
     pub fn step(&mut self) -> Result<()> {
         self.check_interrupts();
-        if self.halted {
+        if self.registers.halted {
             self.tick_mclock();
         } else {
-            let state = self.state();
+            let state = format!("{:?}", self);
             let start_cycle = self.cycles;
             let mut instr = self.parse_next_instruction()?;
             self.execute(&mut instr);
@@ -101,14 +110,6 @@ impl CPU {
             }
         }
         Ok(())
-    }
-
-    fn tick_mclock(&mut self) {
-        self.increment_timers();
-        self.bus.ppu.draw();
-        self.bus.increment_rtc();
-        self.bus.increment_dma();
-        self.cycles += 4;
     }
 
     fn parse_next_instruction(&mut self) -> Result<Instruction> {
@@ -123,24 +124,26 @@ impl CPU {
 
     fn consume_byte(&mut self) -> u8 {
         let byte = self.read_addr(self.pc);
-        if self.halt_bug {
-            self.halt_bug = false;
+        if self.registers.halt_bug {
+            self.registers.halt_bug = false;
         } else {
             self.pc += 1;
         }
         byte
     }
 
-    fn byte_arg(&mut self, instr: &mut Instruction) -> u8 {
-        let byte = self.consume_byte();
-        instr.bytes.push(byte);
-        byte
+    fn tick_mclock(&mut self) {
+        self.increment_timers();
+        self.bus.increment_rtc();
+        self.bus.increment_dma();
+        self.bus.ppu.draw();
+        self.cycles += 4;
     }
 
-    fn word_arg(&mut self, instr: &mut Instruction) -> u16 {
-        let lo = self.byte_arg(instr);
-        let hi = self.byte_arg(instr);
-        ((hi as u16) << 8) | (lo as u16)
+    fn increment_timers(&mut self) {
+        if self.bus.timers.increment() {
+            self.request_interrupt(2);
+        }
     }
 
     fn request_interrupt(&mut self, int: u8) {
@@ -157,9 +160,9 @@ impl CPU {
         for i in 0..5 {
             let mask = 1u8 << i;
             if IE & IF & mask != 0 {
-                self.halted = false;
-                if self.ime {
-                    self.ime = false;
+                self.registers.halted = false;
+                if self.registers.ime {
+                    self.registers.ime = false;
                     self.bus.write_byte(0xFF0F, IF ^ mask);
                     self.push_word(self.pc);
                     self.pc = (i << 3) + 0x40;
@@ -167,15 +170,9 @@ impl CPU {
                 }
             }
         }
-        if self.queue_ime {
-            self.ime = true;
-            self.queue_ime = false;
-        }
-    }
-
-    fn increment_timers(&mut self) {
-        if self.bus.timers.increment() {
-            self.request_interrupt(2);
+        if self.registers.queue_ime {
+            self.registers.ime = true;
+            self.registers.queue_ime = false;
         }
     }
 
@@ -186,14 +183,14 @@ impl CPU {
             OP::HALT => {
                 let IE = self.bus.read_byte(0xFFFF);
                 let IF = self.bus.read_byte(0xFF0F);
-                if !self.ime && (IE & IF & 0x1F) != 0 {
-                    self.halt_bug = true;
+                if !self.registers.ime && (IE & IF & 0x1F) != 0 {
+                    self.registers.halt_bug = true;
                 } else {
-                    self.halted = true;
+                    self.registers.halted = true;
                 }
             }
-            OP::DI => self.ime = false,
-            OP::EI => self.queue_ime = true,
+            OP::DI => self.registers.ime = false,
+            OP::EI => self.registers.queue_ime = true,
 
             OP::LD(ld_type) => match ld_type {
                 LDType::ByteImm(r8) => {
@@ -466,7 +463,7 @@ impl CPU {
                 }
             }
             OP::RETI => {
-                self.ime = true;
+                self.registers.ime = true;
                 self.pc = self.pop_word();
                 self.tick_mclock();
             }
@@ -495,6 +492,18 @@ impl CPU {
                 }
             }
         };
+    }
+
+    fn byte_arg(&mut self, instr: &mut Instruction) -> u8 {
+        let byte = self.consume_byte();
+        instr.bytes.push(byte);
+        byte
+    }
+
+    fn word_arg(&mut self, instr: &mut Instruction) -> u16 {
+        let lo = self.byte_arg(instr);
+        let hi = self.byte_arg(instr);
+        ((hi as u16) << 8) | (lo as u16)
     }
 
     fn pop(&mut self) -> u8 {
