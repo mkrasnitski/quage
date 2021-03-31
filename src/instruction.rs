@@ -3,6 +3,8 @@ use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
 use std::fmt;
 
+use crate::debug::InstructionDisplay;
+
 #[derive(Debug, Copy, Clone, Primitive)]
 pub enum R8 {
     B = 0,
@@ -269,6 +271,7 @@ pub struct Instruction {
 
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        assert!(self.bytes.len() == self.len as usize);
         let bytes = self
             .bytes
             .iter()
@@ -277,8 +280,11 @@ impl fmt::Display for Instruction {
             .join(" ");
         write!(
             f,
-            "{: >8} -> {:?} [{}, {}]",
-            bytes, self.op, self.len, self.cycles
+            "{: >8} -> {:<14} [{}, {: >2}]",
+            bytes,
+            self.op.to_instr_string(&self.bytes),
+            self.len,
+            self.cycles
         )
     }
 }

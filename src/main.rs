@@ -1,5 +1,6 @@
 mod bus;
 mod cpu;
+mod debug;
 mod display;
 mod flags;
 mod gb;
