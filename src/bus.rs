@@ -467,6 +467,8 @@ impl MemoryBus {
             | MapperType::MBC3BattRam
             | MapperType::MBC3RamRTC
             | MapperType::MBC5BattRam => {
+                let dir = filename.parent().unwrap();
+                std::fs::create_dir_all(dir).unwrap();
                 File::create(filename)
                     .unwrap()
                     .write_all(&self.cartridge.ram)
