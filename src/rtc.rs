@@ -34,7 +34,11 @@ impl RTC {
 
     pub fn write_byte(&mut self, reg: u8, val: u8) {
         match reg {
-            0x08 => self.latched_state.seconds = val & 0x3F,
+            0x08 => {
+                self.cycles = 0;
+                self.ticks = 0;
+                self.latched_state.seconds = val & 0x3F;
+            }
             0x09 => self.latched_state.minutes = val & 0x3F,
             0x0A => self.latched_state.hours = val & 0x1F,
             0x0B => self.latched_state.days = (self.latched_state.days & 0b100000000) | val as u16,
