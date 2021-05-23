@@ -164,7 +164,11 @@ impl CPU {
                 if self.registers.ime {
                     self.registers.ime = false;
                     self.bus.write_byte(0xFF0F, IF ^ mask);
-                    self.push_word(self.pc);
+                    // manually push pc onto the stack to prevent the mclock from ticking.
+                    self.sp -= 1;
+                    self.bus.write_byte(self.sp, (self.pc >> 8) as u8);
+                    self.sp -= 1;
+                    self.bus.write_byte(self.sp, self.pc as u8);
                     self.pc = (i << 3) + 0x40;
                     break;
                 }
