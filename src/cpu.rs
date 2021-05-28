@@ -134,8 +134,8 @@ impl CPU {
 
     fn tick_mclock(&mut self) {
         self.increment_timers();
-        self.bus.increment_rtc();
         self.bus.increment_dma();
+        self.bus.cartridge.increment_rtc();
         self.bus.ppu.draw();
         self.cycles += 4;
     }

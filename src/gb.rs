@@ -26,7 +26,7 @@ impl GameBoy {
             cpu: CPU::new(bootrom, cartridge, true)?,
             save_path,
         };
-        gb.cpu.bus.load_external_ram(&gb.save_path);
+        gb.cpu.bus.cartridge.load_external_ram(&gb.save_path);
         Ok(gb)
     }
 
@@ -34,7 +34,7 @@ impl GameBoy {
         loop {
             self.cpu.step()?;
             if let DisplayEvent::Quit = self.cpu.bus.poll_display_event() {
-                self.cpu.bus.save_external_ram(self.save_path.as_path());
+                self.cpu.bus.cartridge.save_external_ram(&self.save_path);
                 break;
             }
         }
