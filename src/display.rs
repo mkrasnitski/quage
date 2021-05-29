@@ -26,8 +26,11 @@ impl DisplayManager {
         })
     }
 
-    pub fn new_display(&self) -> Result<Display> {
-        Display::new(&self.context)
+    pub fn new_display<const W: usize, const H: usize>(
+        &self,
+        show_fps: bool,
+    ) -> Result<Display<W, H>> {
+        Display::new(&self.context, show_fps)
     }
 
     pub fn poll_event(&mut self) -> DisplayEvent {
@@ -59,29 +62,27 @@ pub enum DisplayEvent {
     None,
 }
 
-pub struct Display {
+pub struct Display<const W: usize, const H: usize> {
     frames: u64,
     time: Instant,
     last_frame: Instant,
     limit_framerate: bool,
+    show_fps: bool,
     canvas: Canvas<Window>,
 }
 
-impl Display {
-    pub fn new(context: &sdl2::Sdl) -> Result<Self> {
+impl<const W: usize, const H: usize> Display<W, H> {
+    pub fn new(context: &sdl2::Sdl, show_fps: bool) -> Result<Self> {
         Ok(Display {
             frames: 0,
             time: Instant::now(),
             last_frame: Instant::now(),
             limit_framerate: true,
+            show_fps,
             canvas: context
                 .video()
                 .map_err(Error::msg)?
-                .window(
-                    "gb-emu",
-                    (W_WIDTH * W_SCALE) as u32,
-                    (W_HEIGHT * W_SCALE) as u32,
-                )
+                .window("gb-emu", (W * W_SCALE) as u32, (H * W_SCALE) as u32)
                 .position_centered()
                 .build()?
                 .into_canvas()
@@ -93,7 +94,7 @@ impl Display {
         self.limit_framerate = !self.limit_framerate;
     }
 
-    pub fn draw(&mut self, pixels: [[Color; W_WIDTH]; W_HEIGHT]) {
+    pub fn draw(&mut self, pixels: &[[Color; W]; H]) {
         self.canvas.set_draw_color(Color::WHITE);
         self.canvas.clear();
         for (i, row) in pixels.iter().enumerate() {
@@ -126,7 +127,9 @@ impl Display {
         self.last_frame = Instant::now();
         let time_elapsed = Instant::now().duration_since(self.time);
         if time_elapsed > Duration::from_secs(1) {
-            // println!("{}", self.frames);
+            if self.show_fps {
+                println!("{}", self.frames);
+            }
             self.frames = 0;
             self.time = Instant::now();
         }

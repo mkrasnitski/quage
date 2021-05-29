@@ -8,7 +8,9 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.37"
+clap = "2.33.3"
 enum-primitive-derive = "0.2.1"
 num-traits = "0.2.14"
 rand = {git = 'https://github.com/rust-random/rand', features=["min_const_gen"]}
 sdl2 = "0.34.3"
+structopt = "0.3.21"

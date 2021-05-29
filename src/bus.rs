@@ -2,6 +2,7 @@
 use anyhow::Result;
 
 use crate::cartridge::Cartridge;
+use crate::config::Config;
 use crate::display::DisplayEvent;
 use crate::joypad::Joypad;
 use crate::ppu::PPU;
@@ -32,9 +33,9 @@ pub struct MemoryBus {
 }
 
 impl MemoryBus {
-    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>) -> Result<Self> {
+    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, config: &Config) -> Result<Self> {
         Ok(MemoryBus {
-            ppu: PPU::new()?,
+            ppu: PPU::new(config)?,
             timers: Timers::new(),
             joypad: Joypad::new(),
             sound: Sound::new(),

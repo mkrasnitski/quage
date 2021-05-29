@@ -1,5 +1,6 @@
 mod bus;
 mod cartridge;
+mod config;
 mod cpu;
 mod debug;
 mod display;
@@ -12,13 +13,11 @@ mod rtc;
 mod sound;
 mod timers;
 use anyhow::Result;
-use std::env;
+use structopt::StructOpt;
+
+use crate::config::Config;
+use crate::gb::GameBoy;
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        anyhow::bail!("Please provide a bootrom and cartridge.")
-    }
-    let mut gb = gb::GameBoy::new(&args[1], &args[2])?;
-    gb.run()
+    GameBoy::new(Config::from_args())?.run()
 }

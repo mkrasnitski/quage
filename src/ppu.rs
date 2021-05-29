@@ -2,6 +2,7 @@
 use anyhow::Result;
 use sdl2::pixels::Color;
 
+use crate::config::Config;
 use crate::display::*;
 
 #[derive(Default)]
@@ -42,8 +43,8 @@ pub struct PPU {
     registers: PPURegisters,
     interrupts: PPUInterrupts,
     viewport: [[Color; W_WIDTH]; W_HEIGHT],
-    display: Display,
-    // tile_display: Display,
+    display: Display<W_WIDTH, W_HEIGHT>,
+    tile_display: Option<Display<128, 192>>,
     enable_display_events: bool,
     block_stat_irqs: bool,
     dots: u64,
@@ -51,10 +52,14 @@ pub struct PPU {
 }
 
 impl PPU {
-    pub fn new() -> Result<Self> {
+    pub fn new(config: &Config) -> Result<Self> {
         let display_manager = DisplayManager::new()?;
-        // let tile_display = display_manager.new_display()?;
-        let display = display_manager.new_display()?;
+        let display = display_manager.new_display(config.show_fps)?;
+        let tile_display = if config.dump_tiles {
+            Some(display_manager.new_display(false)?)
+        } else {
+            None
+        };
         Ok(PPU {
             memory: [0; 0x2000],
             oam: [0; 0xA0],
@@ -63,7 +68,7 @@ impl PPU {
             interrupts: PPUInterrupts::default(),
             display_manager,
             display,
-            // tile_display,
+            tile_display,
             enable_display_events: false,
             block_stat_irqs: false,
             dots: 0,
@@ -71,6 +76,7 @@ impl PPU {
         })
     }
 
+    #[allow(dead_code)]
     fn memory_lock(&self, addr: u16) -> bool {
         let mode = self.registers.STAT & 0b11;
         if (0x8000..=0x9FFF).contains(&addr) {
@@ -144,15 +150,20 @@ impl PPU {
 
     pub fn toggle_frame_limiter(&mut self) {
         self.display.toggle_frame_limiter();
-        // self.tile_display.toggle_frame_limiter();
+        if let Some(tile_display) = self.tile_display.as_mut() {
+            tile_display.toggle_frame_limiter();
+        }
     }
 
     pub fn draw(&mut self) {
         if self.cycles == 17556 {
             self.cycles = 0;
             self.enable_display_events = true;
-            self.display.draw(self.viewport);
-            // self.tile_display.draw(self.dump_tiles(0x9000));
+            self.display.draw(&self.viewport);
+            let tiles = self.dump_tiles(0x8000);
+            if let Some(tile_display) = self.tile_display.as_mut() {
+                tile_display.draw(&tiles);
+            }
         }
 
         // Keep drawing a blank screen while the LCD is turned off
@@ -346,10 +357,9 @@ impl PPU {
         }
     }
 
-    #[allow(dead_code)]
-    fn dump_tiles(&self, base: u16) -> [[Color; W_WIDTH]; W_HEIGHT] {
-        let mut bg = [[Color::WHITE; W_WIDTH]; W_HEIGHT];
-        for i in 0..256 {
+    fn dump_tiles(&self, base: u16) -> [[Color; 128]; 192] {
+        let mut bg = [[Color::WHITE; 128]; 192];
+        for i in 0..384 {
             let tile_addr = base + i * 16;
             let tile_y = i / 16;
             let tile_x = i % 16;

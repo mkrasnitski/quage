@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::*;
+use std::path::PathBuf;
 
-use crate::cpu::*;
-use crate::display::*;
+use crate::config::Config;
+use crate::cpu::CPU;
+use crate::display::DisplayEvent;
 
 pub struct GameBoy {
     cpu: CPU,
@@ -11,19 +12,18 @@ pub struct GameBoy {
 }
 
 impl GameBoy {
-    pub fn new(bootrom_path: &str, cartridge_path: &str) -> Result<Self> {
-        let bootrom = fs::read(bootrom_path)
-            .with_context(|| format!("Couldn't read bootrom `{}`", bootrom_path))?;
-        let cartridge = fs::read(cartridge_path)
-            .with_context(|| format!("Couldn't read cartridge `{}`", cartridge_path))?;
+    pub fn new(config: Config) -> Result<Self> {
+        let bootrom = fs::read(&config.bootrom_path)
+            .context(format!("Bootrom {:?} not found", &config.bootrom_path))?;
+        let cartridge = fs::read(&config.cartridge_path)
+            .context(format!("Cartridge {:?} not found", &config.cartridge_path))?;
 
-        let cart_path = PathBuf::from(cartridge_path);
-        let mut save_path = PathBuf::from("saves");
-        save_path.push(cart_path.file_stem().unwrap());
+        let mut save_path = config.saves_dir.clone();
+        save_path.push(config.cartridge_path.file_stem().unwrap());
         save_path.set_extension("sav");
 
         let mut gb = GameBoy {
-            cpu: CPU::new(bootrom, cartridge, true)?,
+            cpu: CPU::new(bootrom, cartridge, &config)?,
             save_path,
         };
         gb.cpu.bus.cartridge.load_external_ram(&gb.save_path);

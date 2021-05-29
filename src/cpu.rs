@@ -2,10 +2,9 @@
 use anyhow::Result;
 
 use crate::bus::MemoryBus;
+use crate::config::Config;
 use crate::flags::*;
 use crate::instruction::*;
-
-const DEBUG: bool = false;
 
 #[derive(Default)]
 struct Registers {
@@ -40,6 +39,7 @@ pub struct CPU {
     pc: u16,
     sp: u16,
     cycles: u64,
+    debug: bool,
 }
 
 impl std::fmt::Debug for CPU {
@@ -53,15 +53,16 @@ impl std::fmt::Debug for CPU {
 }
 
 impl CPU {
-    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, skip_bootrom: bool) -> Result<Self> {
+    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, config: &Config) -> Result<Self> {
         let mut cpu = CPU {
-            bus: MemoryBus::new(bootrom, cartridge)?,
+            bus: MemoryBus::new(bootrom, cartridge, &config)?,
             registers: Registers::default(),
             pc: 0,
             sp: 0,
             cycles: 0,
+            debug: config.debug,
         };
-        if skip_bootrom {
+        if config.skip_bootrom {
             cpu.registers.a = 0x01;
             cpu.registers.c = 0x13;
             cpu.registers.e = 0xd8;
@@ -100,7 +101,7 @@ impl CPU {
         if self.registers.halted {
             self.tick_mclock();
         } else {
-            let state = if DEBUG {
+            let state = if self.debug {
                 Some(format!("{:?}", self))
             } else {
                 None
