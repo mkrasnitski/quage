@@ -8,22 +8,27 @@ use crate::ppu::PPU;
 use crate::sound::Sound;
 use crate::timers::Timers;
 
+#[derive(Default)]
+struct DMA {
+    start: u8,
+    byte: u8,
+    cycles: u8,
+    running: bool,
+}
+
 pub struct MemoryBus {
     pub ppu: PPU,
     pub timers: Timers,
     pub joypad: Joypad,
     pub sound: Sound,
     pub cartridge: Cartridge,
+    dma: DMA,
+    bootrom_switch: bool,
+    bootrom: Vec<u8>,
     work_ram: [u8; 0x2000],
     hram: [u8; 0x7f],
-    bootrom: Vec<u8>,
     IE: u8,
     IF: u8,
-    dma_start: u8,
-    dma_byte: u8,
-    dma_cycles: u8,
-    dma_running: bool,
-    bootrom_switch: u8,
 }
 
 impl MemoryBus {
@@ -39,11 +44,8 @@ impl MemoryBus {
             bootrom,
             IE: 0,
             IF: 0xE0,
-            dma_start: 0,
-            dma_byte: 0,
-            dma_cycles: 0,
-            dma_running: false,
-            bootrom_switch: 0,
+            dma: DMA::default(),
+            bootrom_switch: false,
         })
     }
 
@@ -54,17 +56,17 @@ impl MemoryBus {
     }
 
     pub fn increment_dma(&mut self) {
-        if self.dma_running {
-            if self.dma_cycles > 0 {
-                let i = self.dma_cycles as u16 - 1;
-                self.dma_byte = self.read_byte_direct(((self.dma_start as u16) << 8) + i);
-                self.write_byte_direct(0xFE00 + i, self.dma_byte);
+        if self.dma.running {
+            if self.dma.cycles > 0 {
+                let i = self.dma.cycles as u16 - 1;
+                self.dma.byte = self.read_byte_direct(((self.dma.start as u16) << 8) + i);
+                self.write_byte_direct(0xFE00 + i, self.dma.byte);
             }
-            if self.dma_cycles == 160 {
-                self.dma_cycles = 0;
-                self.dma_running = false;
+            if self.dma.cycles == 160 {
+                self.dma.cycles = 0;
+                self.dma.running = false;
             } else {
-                self.dma_cycles += 1;
+                self.dma.cycles += 1;
             }
         }
     }
@@ -83,8 +85,8 @@ impl MemoryBus {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         if self.dma_conflict(addr) {
-            // println!("DMA Conflict! {:04x} {:02x}", addr, self.dma_start);
-            self.dma_byte
+            // println!("DMA Conflict! {:04x} {:02x}", addr, self.dma.start);
+            self.dma.byte
         } else {
             self.read_byte_direct(addr)
         }
@@ -99,7 +101,7 @@ impl MemoryBus {
     fn read_byte_direct(&self, addr: u16) -> u8 {
         match addr {
             0x0000..=0x7FFF => {
-                if addr < 0x100 && self.bootrom_switch == 0 {
+                if addr < 0x100 && !self.bootrom_switch {
                     return self.bootrom[addr as usize];
                 }
                 self.cartridge.read_rom_byte(addr)
@@ -119,7 +121,7 @@ impl MemoryBus {
                 self.sound.read_byte(addr)
             }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
-            0xFF46 => self.dma_start,
+            0xFF46 => self.dma.start,
             0xFF50 => 0xFF, // read-only
             0xFF0F => self.IF,
             0xFFFF => self.IE,
@@ -159,14 +161,14 @@ impl MemoryBus {
             }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF46 => {
-                self.dma_start = val;
-                self.dma_cycles = 0;
-                self.dma_running = true;
+                self.dma.start = val;
+                self.dma.cycles = 0;
+                self.dma.running = true;
             }
             0xFF50 => {
                 // Only written to once
-                if self.bootrom_switch == 0 {
-                    self.bootrom_switch = val
+                if !self.bootrom_switch && val & 1 == 1 {
+                    self.bootrom_switch = true
                 }
             }
             0xFF0F => self.IF = val | 0xE0,
@@ -181,12 +183,12 @@ impl MemoryBus {
     }
 
     fn dma_conflict(&self, addr: u16) -> bool {
-        self.dma_running
+        self.dma.running
             && match addr {
                 0x0000..=0x7FFF | 0xA000..=0xFDFF => {
-                    self.dma_start < 0x7F || (0xA0..=0xFD).contains(&self.dma_start)
+                    self.dma.start < 0x7F || (0xA0..=0xFD).contains(&self.dma.start)
                 }
-                0x8000..=0x9FFF => (0x80..=0x9F).contains(&self.dma_start),
+                0x8000..=0x9FFF => (0x80..=0x9F).contains(&self.dma.start),
                 0xFE00..=0xFFFF => false,
             }
     }
