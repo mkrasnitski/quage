@@ -60,7 +60,11 @@ impl MemoryBus {
         if self.dma.running {
             if self.dma.cycles > 0 {
                 let i = self.dma.cycles as u16 - 1;
-                self.dma.byte = self.read_byte_direct(((self.dma.start as u16) << 8) + i);
+                let start = match self.dma.start {
+                    0xFE | 0xFF => self.dma.start as u16 - 0x20,
+                    _ => self.dma.start as u16,
+                };
+                self.dma.byte = self.read_byte_direct((start << 8) + i);
                 self.write_byte_direct(0xFE00 + i, self.dma.byte);
             }
             if self.dma.cycles == 160 {
