@@ -43,7 +43,10 @@ pub struct PPU {
     registers: PPURegisters,
     interrupts: PPUInterrupts,
     viewport: [[Color; W_WIDTH]; W_HEIGHT],
+    fifo_viewport: [[Color; W_WIDTH]; W_HEIGHT],
+    sprite_indices: Vec<usize>,
     display: Display<W_WIDTH, W_HEIGHT>,
+    fifo_display: Display<W_WIDTH, W_HEIGHT>,
     tile_display: Option<Display<128, 192>>,
     enable_display_events: bool,
     block_stat_irqs: bool,
@@ -54,20 +57,24 @@ pub struct PPU {
 impl PPU {
     pub fn new(config: &Config) -> Result<Self> {
         let display_manager = DisplayManager::new()?;
-        let display = display_manager.new_display(config.show_fps)?;
+        let display = display_manager.new_display((468, 350), config.show_fps)?;
+        let fifo_display = display_manager.new_display((968, 350), false)?;
         let tile_display = if config.dump_tiles {
-            Some(display_manager.new_display(false)?)
+            Some(display_manager.new_display((1468, 280), false)?)
         } else {
             None
         };
         Ok(PPU {
             memory: [0; 0x2000],
             oam: [0; 0xA0],
+            sprite_indices: Vec::new(),
             viewport: [[Color::WHITE; W_WIDTH]; W_HEIGHT],
+            fifo_viewport: [[Color::WHITE; W_WIDTH]; W_HEIGHT],
             registers: PPURegisters::new(),
             interrupts: PPUInterrupts::default(),
             display_manager,
             display,
+            fifo_display,
             tile_display,
             enable_display_events: false,
             block_stat_irqs: false,
@@ -150,6 +157,7 @@ impl PPU {
 
     pub fn toggle_frame_limiter(&mut self) {
         self.display.toggle_frame_limiter();
+        self.fifo_display.toggle_frame_limiter();
         if let Some(tile_display) = self.tile_display.as_mut() {
             tile_display.toggle_frame_limiter();
         }
@@ -160,6 +168,7 @@ impl PPU {
             self.cycles = 0;
             self.enable_display_events = true;
             self.display.draw(&self.viewport);
+            self.fifo_display.draw(&self.fifo_viewport);
             let tiles = self.dump_tiles(0x8000);
             if let Some(tile_display) = self.tile_display.as_mut() {
                 tile_display.draw(&tiles);
@@ -198,7 +207,10 @@ impl PPU {
         // PPU Mode switching
         if self.registers.LY < 144 {
             match clocks {
-                0 => self.set_mode(2), // OAM Search
+                0 => {
+                    self.set_mode(2);
+                    self.oam_scan();
+                }
                 20 => {
                     self.set_mode(3); // Drawing
                     self.draw_line();
@@ -238,6 +250,28 @@ impl PPU {
         {
             self.block_stat_irqs = true;
             self.interrupts.stat = true;
+        }
+    }
+
+    fn oam_scan(&mut self) {
+        let sprite_height = ((self.registers.LCDC & (1 << 2)) >> 2) as u8 + 1;
+        self.sprite_indices.clear();
+        for i in 0..40 {
+            if self.sprite_indices.len() < 10 {
+                let sprite_y = self.oam[4 * i];
+                let sprite_x = self.oam[4 * i + 1];
+                if sprite_x > 0
+                    && self.registers.LY + 16 >= sprite_y
+                    && self.registers.LY + 16 < sprite_y + 8 * sprite_height
+                {
+                    let get_sprite_x = |j| self.oam[4 * j as usize + 1];
+                    let idx = self
+                        .sprite_indices
+                        .binary_search_by(|&j| sprite_x.cmp(&get_sprite_x(j)))
+                        .unwrap_or_else(|j| j);
+                    self.sprite_indices.insert(idx, i);
+                }
+            }
         }
     }
 
@@ -297,23 +331,7 @@ impl PPU {
             // Sprites
             let sprite_height = ((self.registers.LCDC & (1 << 2)) >> 2) as u8 + 1;
             if self.registers.LCDC & (1 << 1) != 0 {
-                let mut sprite_indices = Vec::new();
-                for i in 0..40 {
-                    if sprite_indices.len() < 10 {
-                        let sprite_y = self.oam[4 * i];
-                        let sprite_x = self.oam[4 * i + 1];
-                        if sprite_x > 0
-                            && self.registers.LY + 16 >= sprite_y
-                            && self.registers.LY + 16 < sprite_y + 8 * sprite_height
-                        {
-                            sprite_indices.push(i);
-                        }
-                    }
-                }
-
-                sprite_indices
-                    .sort_by(|&a, &b| (self.oam[4 * b + 1], b).cmp(&(self.oam[4 * a + 1], a)));
-                for sprite_index in sprite_indices.iter() {
+                for sprite_index in self.sprite_indices.iter() {
                     let sprite_y = self.oam[4 * sprite_index];
                     let sprite_x = self.oam[4 * sprite_index + 1];
                     let sprite_tile_num =
