@@ -23,13 +23,13 @@ pub struct MemoryBus {
     pub joypad: Joypad,
     pub sound: Sound,
     pub cartridge: Cartridge,
-    dma: DMA,
-    bootrom_switch: bool,
-    bootrom: Vec<u8>,
     work_ram: [u8; 0x2000],
     hram: [u8; 0x7f],
-    IE: u8,
-    IF: u8,
+    bootrom: Vec<u8>,
+    bootrom_switch: bool,
+    dma: DMA,
+    pub IE: u8,
+    pub IF: u8,
 }
 
 impl MemoryBus {
@@ -41,12 +41,12 @@ impl MemoryBus {
             sound: Sound::new(),
             cartridge: Cartridge::new(cartridge)?,
             work_ram: rand::random(),
+            dma: DMA::default(),
             hram: [0; 0x7f],
             bootrom,
+            bootrom_switch: false,
             IE: 0,
             IF: 0xE0,
-            dma: DMA::default(),
-            bootrom_switch: false,
         })
     }
 
