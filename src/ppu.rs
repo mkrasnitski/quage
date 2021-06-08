@@ -102,7 +102,6 @@ struct FIFO {
     num_pixels: u8,
     num_tiles: u8,
     thrown_away: u8,
-    window: bool,
 }
 
 impl FIFO {
@@ -113,7 +112,6 @@ impl FIFO {
             num_pixels: 0,
             num_tiles: 0,
             thrown_away: 0,
-            window: false,
         }
     }
 
@@ -151,7 +149,9 @@ pub struct PPU {
     fifo_viewport: [[Color; W_WIDTH]; W_HEIGHT],
 
     enable_display_events: bool,
-    block_stat_irqs: bool,
+    stat_condition: bool,
+    ly_coincidence: bool,
+    drawing_window: bool,
     dots: u64,
     cycles: u64,
 }
@@ -182,7 +182,9 @@ impl PPU {
             fifo_display,
 
             enable_display_events: false,
-            block_stat_irqs: false,
+            stat_condition: false,
+            ly_coincidence: false,
+            drawing_window: false,
             dots: 0,
             cycles: 0,
         })
@@ -190,11 +192,13 @@ impl PPU {
 
     #[allow(dead_code)]
     fn memory_lock(&self, addr: u16) -> bool {
-        let mode = self.registers.STAT & 0b11;
-        if (0x8000..=0x9FFF).contains(&addr) {
-            mode < 3
+        let mode = self.get_mode();
+        if self.registers.LCDC & (1 << 7) == 0 {
+            false
+        } else if (0x8000..=0x9FFF).contains(&addr) {
+            mode == 3
         } else if (0xFE00..=0xFE9F).contains(&addr) {
-            mode < 2
+            mode >= 2
         } else {
             false
         }
@@ -298,23 +302,19 @@ impl PPU {
 
         // Start of a line
         if clocks == 0 {
-            self.block_stat_irqs = false;
             if scanline == 0 {
                 self.registers.WC = 0;
             }
             self.registers.LY = scanline;
-            self.check_LY_coincidence(self.registers.LY);
         }
-        if self.registers.LY == 153 && clocks == 1 {
-            self.check_LY_coincidence(0);
-        }
+        self.check_LY_coincidence();
 
         // PPU Mode switching
         if self.registers.LY < 144 {
             if clocks == 0 {
                 self.set_mode(2);
                 self.oam_scan();
-            } else if clocks >= 20 && self.registers.STAT & 0b11 != 0 {
+            } else if clocks >= 20 && self.get_mode() != 0 {
                 if clocks == 20 {
                     self.set_mode(3);
                     self.draw_line();
@@ -334,25 +334,34 @@ impl PPU {
         self.registers.STAT &= !0b11;
         self.registers.STAT |= mode & 0b11;
         if mode < 3 {
-            self.req_stat_interrupt(mode + 3);
+            self.update_stat_condition();
         }
     }
 
-    fn check_LY_coincidence(&mut self, line: u8) {
-        let coincidence = line == self.registers.LYC;
-        if coincidence {
-            self.req_stat_interrupt(6);
-        }
+    fn get_mode(&self) -> u8 {
+        self.registers.STAT & 0b11
+    }
+
+    fn check_LY_coincidence(&mut self) {
+        self.ly_coincidence = if self.registers.LY == 153 && self.dots % 114 >= 1 {
+            self.registers.LYC == 0
+        } else {
+            self.registers.LYC == self.registers.LY
+        };
         self.registers.STAT &= !(1 << 2);
-        self.registers.STAT |= (coincidence as u8) << 2;
+        self.registers.STAT |= (self.ly_coincidence as u8) << 2;
+        self.update_stat_condition();
     }
 
-    fn req_stat_interrupt(&mut self, bit: u8) {
-        if !self.block_stat_irqs
-            && (self.registers.STAT & (1 << bit)) != 0
-            && (3..=6).contains(&bit)
-        {
-            self.block_stat_irqs = true;
+    fn update_stat_condition(&mut self) {
+        let old_val = self.stat_condition;
+        self.stat_condition = (self.registers.STAT & (1 << 6) != 0) && self.ly_coincidence;
+        for i in 0..3 {
+            if self.registers.STAT & (1 << (i + 3)) != 0 {
+                self.stat_condition |= self.get_mode() == i;
+            }
+        }
+        if self.stat_condition && !old_val {
             self.interrupts.stat = true;
         }
     }
@@ -385,7 +394,7 @@ impl PPU {
             // Throw away pixels that would normally be off screen
             // This includes the first SCX % 8 pixels of the background,
             // and the first pixels of the window if WX < 7
-            let num_to_throw = match self.bg_fifo.window {
+            let num_to_throw = match self.drawing_window {
                 true => match self.registers.WX {
                     0..=6 => 7 - self.registers.WX,
                     _ => 0,
@@ -413,17 +422,17 @@ impl PPU {
                 if self.registers.LCDC & (1 << 5) != 0
                     && self.registers.LY >= self.registers.WY
                     && self.bg_fifo.num_pixels + 7 >= self.registers.WX
-                    && !self.bg_fifo.window
+                    && !self.drawing_window
                 {
-                    self.bg_fifo.window = true;
+                    self.drawing_window = true;
                     self.bg_fifo.fetcher.reset();
                     self.bg_fifo.queue.clear();
                 }
                 self.step_fetcher();
             } else {
                 self.set_mode(0);
-                if self.bg_fifo.window {
-                    self.bg_fifo.window = false;
+                if self.drawing_window {
+                    self.drawing_window = false;
                     self.registers.WC += 1;
                 }
             }
@@ -436,7 +445,7 @@ impl PPU {
             match state {
                 FetcherState::GetTileNum => {
                     // BG and Window use different tilemap flip-bits
-                    let tilemap_bit = match self.bg_fifo.window {
+                    let tilemap_bit = match self.drawing_window {
                         true => 6,
                         false => 3,
                     };
@@ -445,7 +454,7 @@ impl PPU {
                         false => 0x9800,
                     };
                     // Figure out what tile we're drawing
-                    let (x, y) = match self.bg_fifo.window {
+                    let (x, y) = match self.drawing_window {
                         true => (
                             8 * self.bg_fifo.num_tiles
                                 - (self.registers.SCX % 8)

@@ -164,21 +164,21 @@ impl CPU {
 
     fn check_interrupts(&mut self) {
         self.bus.check_interrupts();
-        let IE = self.bus.read_byte(0xFFFF);
-        let IF = self.bus.read_byte(0xFF0F);
         for i in 0..5 {
             let mask = 1u8 << i;
-            if IE & IF & mask != 0 {
+            if self.bus.IE & self.bus.IF & mask != 0 {
                 self.registers.halted = false;
                 if self.registers.ime {
+                    // An ISR takes 5 m-cycles to service, like on Z80
+                    // 2 NOPs, then 2 cycles pushing PC onto the stack,
+                    // then 1 more cycle to change PC
+                    self.tick_mclock();
+                    self.tick_mclock();
+                    self.push_word(self.pc);
                     self.registers.ime = false;
-                    self.bus.write_byte(0xFF0F, IF ^ mask);
-                    // manually push pc onto the stack to prevent the mclock from ticking.
-                    self.sp -= 1;
-                    self.bus.write_byte(self.sp, (self.pc >> 8) as u8);
-                    self.sp -= 1;
-                    self.bus.write_byte(self.sp, self.pc as u8);
+                    self.bus.IF ^= mask;
                     self.pc = (i << 3) + 0x40;
+                    self.tick_mclock();
                     break;
                 }
             }
@@ -445,12 +445,14 @@ impl CPU {
                 if self.check_branch_condition(condition) {
                     self.push_word(self.pc);
                     self.pc = arg;
+                    self.tick_mclock();
                     instr.cycles += 12;
                 }
             }
             OP::RST(addr) => {
                 self.push_word(self.pc);
                 self.pc = addr;
+                self.tick_mclock();
             }
             OP::RET(condition) => {
                 match condition {
@@ -478,6 +480,7 @@ impl CPU {
                         ((self.registers.a as u16) << 8) | u8::from(self.registers.f) as u16
                     }
                 };
+                self.tick_mclock();
                 self.push_word(val);
             }
             OP::POP(push_pop_target) => {
@@ -517,7 +520,6 @@ impl CPU {
     fn push_word(&mut self, val: u16) {
         self.push((val >> 8) as u8);
         self.push(val as u8);
-        self.tick_mclock();
     }
 
     fn shift_left<B>(&mut self, r8: R8, bit: B)

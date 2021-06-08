@@ -95,11 +95,7 @@ impl InstructionDisplay for LDType {
     fn to_instr_string(&self, bytes: &[u8]) -> String {
         match self {
             LDType::ByteImm(r8) => format!("{}, {:02x}", r8, bytes[1]),
-            LDType::WordImm(word) => format!(
-                "{}, {:04x}",
-                word,
-                ((bytes[2] as u16) << 8) | (bytes[1] as u16)
-            ),
+            LDType::WordImm(word) => format!("{}, {:04x}", word, word_arg(&bytes)),
             LDType::MoveByte(dest, src) => format!("{}, {}", dest, src),
             LDType::IndFromA(ind) => format!("{}, A", ind),
             LDType::AFromInd(ind) => format!("A, {}", ind),
@@ -118,7 +114,7 @@ impl InstructionDisplay for ALUType {
     fn to_instr_string(&self, bytes: &[u8]) -> String {
         match self {
             ALUType::R8(r8) => format!("{}", r8),
-            ALUType::Imm8 => format!("{}", bytes[1]),
+            ALUType::Imm8 => format!("{:02x}", bytes[1]),
         }
     }
 }
