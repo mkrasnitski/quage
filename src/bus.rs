@@ -11,9 +11,11 @@ use crate::timers::Timers;
 
 #[derive(Default)]
 struct DMA {
-    start: u8,
+    base: u8,
+    next_base: u8,
     byte: u8,
     cycles: u8,
+    countdown: u8,
     running: bool,
 }
 
@@ -57,16 +59,22 @@ impl MemoryBus {
     }
 
     pub fn increment_dma(&mut self) {
-        if self.dma.running {
-            if self.dma.cycles > 0 {
-                let i = self.dma.cycles as u16 - 1;
-                let start = match self.dma.start {
-                    0xFE | 0xFF => self.dma.start as u16 - 0x20,
-                    _ => self.dma.start as u16,
-                };
-                self.dma.byte = self.read_byte_direct((start << 8) + i);
-                self.write_byte_direct(0xFE00 + i, self.dma.byte);
+        if self.dma.countdown > 0 {
+            self.dma.countdown -= 1;
+            if self.dma.countdown == 0 {
+                self.dma.base = self.dma.next_base;
+                self.dma.cycles = 0;
+                self.dma.running = true;
             }
+        }
+        if self.dma.running {
+            let i = self.dma.cycles as u16;
+            let base = match self.dma.base {
+                0xFE | 0xFF => self.dma.base as u16 - 0x20,
+                _ => self.dma.base as u16,
+            };
+            self.dma.byte = self.read_byte_direct((base << 8) + i);
+            self.write_byte_direct(0xFE00 + i, self.dma.byte);
             if self.dma.cycles == 160 {
                 self.dma.cycles = 0;
                 self.dma.running = false;
@@ -90,7 +98,6 @@ impl MemoryBus {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         if self.dma_conflict(addr) {
-            // println!("DMA Conflict! {:04x} {:02x}", addr, self.dma.start);
             self.dma.byte
         } else {
             self.read_byte_direct(addr)
@@ -116,7 +123,13 @@ impl MemoryBus {
             0xC000..=0xDFFF => self.work_ram[addr as usize - 0xC000],
             0xE000..=0xFDFF => self.work_ram[addr as usize - 0xE000],
 
-            0xFE00..=0xFE9F => self.ppu.read_byte(addr),
+            0xFE00..=0xFE9F => {
+                if self.dma.running {
+                    0xFF
+                } else {
+                    self.ppu.read_byte(addr)
+                }
+            }
             0xFEA0..=0xFEFF => 0x00,
             0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80],
 
@@ -126,7 +139,7 @@ impl MemoryBus {
                 self.sound.read_byte(addr)
             }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
-            0xFF46 => self.dma.start,
+            0xFF46 => self.dma.base,
             0xFF50 => 0xFF, // read-only
             0xFF0F => self.IF,
             0xFFFF => self.IE,
@@ -166,9 +179,8 @@ impl MemoryBus {
             }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF46 => {
-                self.dma.start = val;
-                self.dma.cycles = 0;
-                self.dma.running = true;
+                self.dma.next_base = val;
+                self.dma.countdown = 2;
             }
             0xFF50 => {
                 // Only written to once
@@ -191,9 +203,9 @@ impl MemoryBus {
         self.dma.running
             && match addr {
                 0x0000..=0x7FFF | 0xA000..=0xFDFF => {
-                    self.dma.start < 0x7F || (0xA0..=0xFD).contains(&self.dma.start)
+                    self.dma.base < 0x7F || (0xA0..=0xFD).contains(&self.dma.base)
                 }
-                0x8000..=0x9FFF => (0x80..=0x9F).contains(&self.dma.start),
+                0x8000..=0x9FFF => (0x80..=0x9F).contains(&self.dma.base),
                 0xFE00..=0xFFFF => false,
             }
     }

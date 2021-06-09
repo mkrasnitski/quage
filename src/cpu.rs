@@ -164,6 +164,8 @@ impl CPU {
 
     fn check_interrupts(&mut self) {
         self.bus.check_interrupts();
+        let mut intr_cancelled = false;
+        let mut intr_taken = false;
         for i in 0..5 {
             let mask = 1u8 << i;
             if self.bus.IE & self.bus.IF & mask != 0 {
@@ -174,14 +176,28 @@ impl CPU {
                     // then 1 more cycle to change PC
                     self.tick_mclock();
                     self.tick_mclock();
-                    self.push_word(self.pc);
-                    self.registers.ime = false;
-                    self.bus.IF ^= mask;
-                    self.pc = (i << 3) + 0x40;
-                    self.tick_mclock();
-                    break;
+                    // ISR is cancelled for this specific interrupt if IE is written to
+                    // during the high byte push and the right bit is no longer set.
+                    self.push((self.pc >> 8) as u8);
+                    if self.bus.IE & self.bus.IF & mask == 0 {
+                        intr_cancelled = true;
+                        continue;
+                    } else {
+                        self.push(self.pc as u8);
+                        self.registers.ime = false;
+                        self.bus.IF ^= mask;
+                        self.pc = (i << 3) + 0x40;
+                        self.tick_mclock();
+                        intr_taken = true;
+                        break;
+                    }
                 }
             }
+        }
+        if intr_cancelled && !intr_taken {
+            self.registers.ime = false;
+            self.pc = 0x0000;
+            self.tick_mclock();
         }
         if self.registers.queue_ime {
             self.registers.ime = true;
