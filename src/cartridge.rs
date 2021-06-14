@@ -93,7 +93,9 @@ impl Mapper {
             | MapperType::MBC3RamRTC => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x3FFF => {
-                    let val = (val as u16 & 0x7f) % self.num_rom_banks;
+                    // MBC3 only uses 128 banks max, but MBC30 (used by Japanese Crystal only)
+                    // can have up to 256. AFAIK there is no way to differentiate the two.
+                    let val = val as u16 % self.num_rom_banks;
                     self.high_bank = if val == 0 { 1 } else { val };
                 }
                 0x4000..=0x5FFF => {

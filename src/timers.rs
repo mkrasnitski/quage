@@ -7,6 +7,8 @@ pub struct Timers {
     pub TMA: u8,
     pub TAC: u8,
     and_result: bool,
+    queue_overflow: bool,
+    overflow_write: bool,
 }
 
 impl Timers {
@@ -19,7 +21,7 @@ impl Timers {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0xFF04 => (self.DIV >> 6) as u8,
+            0xFF04 => (self.DIV >> 8) as u8,
             0xFF05 => self.TIMA,
             0xFF06 => self.TMA,
             0xFF07 => self.TAC,
@@ -30,34 +32,46 @@ impl Timers {
     pub fn write_byte(&mut self, addr: u16, val: u8) {
         match addr {
             0xFF04 => self.DIV = 0,
-            0xFF05 => self.TIMA = val,
+            0xFF05 => {
+                if !self.overflow_write {
+                    self.TIMA = val;
+                    self.queue_overflow = false;
+                }
+            }
             0xFF06 => self.TMA = val,
             0xFF07 => self.TAC = val | 0xf8,
             _ => panic!("Invalid timer register write: {:02x}", addr),
         }
     }
 
-    // Increment DIV by 1 M-cycle
+    // Increment DIV by 4 T-cycles = 1 M-cycle
     pub fn increment(&mut self) -> bool {
         let mut interrupt = false;
-        self.DIV = self.DIV.wrapping_add(1);
+        self.DIV = self.DIV.wrapping_add(4);
         let bit_position = match self.TAC & 0b11 {
-            0 => 7,
-            1 => 1,
-            2 => 3,
-            3 => 5,
+            0 => 9,
+            1 => 3,
+            2 => 5,
+            3 => 7,
             _ => unreachable!(),
         };
         let bit = self.DIV & (1 << bit_position) != 0;
         let new_and_result = bit && (self.TAC & 0b100 != 0);
 
-        // increment TIMA falling edge of AND result
+        if self.queue_overflow {
+            self.queue_overflow = false;
+            self.TIMA = self.TMA;
+            self.overflow_write = true;
+        }
+        // increment TIMA on falling edge of AND result
         if self.and_result && !new_and_result {
             let (new_TIMA, c) = self.TIMA.overflowing_add(1);
             self.TIMA = new_TIMA;
             if c {
-                self.TIMA = self.TMA;
+                self.queue_overflow = true;
                 interrupt = true;
+            } else {
+                self.overflow_write = false;
             }
         }
         self.and_result = new_and_result;
