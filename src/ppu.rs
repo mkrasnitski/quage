@@ -153,13 +153,16 @@ pub struct PPU {
     fifo_display: Display<W_WIDTH, W_HEIGHT>,
     fifo_viewport: [[Color; W_WIDTH]; W_HEIGHT],
 
+    mode: u8,
+    dots: u64,
+    cycles: u64,
+
     enable_display_events: bool,
     stat_condition: bool,
     ly_coincidence: bool,
     drawing_window: bool,
     wy_ly_latch: bool,
-    dots: u64,
-    cycles: u64,
+    lcd_just_turned_on: bool,
 }
 
 impl PPU {
@@ -188,25 +191,26 @@ impl PPU {
             fifo_viewport: [[Color::WHITE; W_WIDTH]; W_HEIGHT],
             fifo_display,
 
+            mode: 0,
+            dots: 0,
+            cycles: 0,
+
             enable_display_events: false,
             stat_condition: false,
             ly_coincidence: false,
             drawing_window: false,
             wy_ly_latch: false,
-            dots: 0,
-            cycles: 0,
+            lcd_just_turned_on: false,
         })
     }
 
-    #[allow(dead_code)]
     fn memory_lock(&self, addr: u16) -> bool {
-        let mode = self.get_mode();
         if !is_bit_set(self.registers.LCDC, 7) {
             false
         } else if (0x8000..=0x9FFF).contains(&addr) {
-            mode == 3
+            self.mode == 3
         } else if (0xFE00..=0xFE9F).contains(&addr) {
-            mode >= 2
+            self.mode >= 2
         } else {
             false
         }
@@ -245,11 +249,14 @@ impl PPU {
                 0x8000..=0x9FFF => self.memory[addr as usize - 0x8000] = val,
                 0xFE00..=0xFE9F => self.oam[addr as usize - 0xFE00] = val,
                 0xFF40 => {
+                    let old_val = self.registers.LCDC;
                     self.registers.LCDC = val;
                     if !is_bit_set(self.registers.LCDC, 7) {
                         self.dots = 0;
                         self.registers.LY = 0;
                         self.set_mode(0);
+                    } else if !is_bit_set(old_val, 7) {
+                        self.lcd_just_turned_on = true;
                     }
                 }
                 0xFF41 => {
@@ -335,15 +342,22 @@ impl PPU {
 
         // PPU Mode switching
         if self.registers.LY < 144 {
-            if clocks < 20 {
+            let oam_length = if self.lcd_just_turned_on { 19 } else { 20 };
+            if clocks < oam_length {
                 if clocks == 0 {
-                    self.set_mode(2);
                     self.oam_sprites.clear();
                     self.oam_index = 0;
+                    self.set_mode(2);
+                    if self.lcd_just_turned_on {
+                        self.registers.STAT &= 0b11111100;
+                    }
                 }
                 self.oam_scan();
-            } else if self.get_mode() != 0 {
-                if clocks == 20 {
+            } else if self.mode != 0 {
+                if clocks == oam_length {
+                    if self.lcd_just_turned_on {
+                        self.lcd_just_turned_on = false;
+                    }
                     self.set_mode(3);
                     self.draw_line();
                     self.bg_fifo.clear();
@@ -363,14 +377,12 @@ impl PPU {
     }
 
     fn set_mode(&mut self, mode: u8) {
-        self.registers.STAT = (self.registers.STAT & !0b11) | (mode & 0b11);
-        if mode < 3 {
+        self.mode = mode;
+        self.registers.STAT &= 0b11111100;
+        self.registers.STAT |= self.mode & 0b11;
+        if self.mode < 3 {
             self.update_stat_condition();
         }
-    }
-
-    fn get_mode(&self) -> u8 {
-        self.registers.STAT & 0b11
     }
 
     fn check_LY_coincidence(&mut self) {
@@ -379,7 +391,7 @@ impl PPU {
         } else {
             self.registers.LYC == self.registers.LY
         };
-        self.registers.STAT &= !(1 << 2);
+        self.registers.STAT &= 0b11111011;
         self.registers.STAT |= (self.ly_coincidence as u8) << 2;
         self.update_stat_condition();
     }
@@ -389,7 +401,7 @@ impl PPU {
         self.stat_condition = is_bit_set(self.registers.STAT, 6) && self.ly_coincidence;
         for i in 0..3 {
             if self.registers.STAT & (1 << (i + 3)) != 0 {
-                self.stat_condition |= self.get_mode() == i;
+                self.stat_condition |= self.mode == i;
             }
         }
         if self.stat_condition && !old_val {
