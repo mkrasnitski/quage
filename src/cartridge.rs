@@ -1,28 +1,48 @@
 use anyhow::{bail, Result};
-use enum_primitive_derive::Primitive;
-use num_traits::FromPrimitive;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
 use crate::rtc::RTC;
 
-#[derive(Primitive)]
 pub enum MapperType {
-    ROM = 0x00,
-    MBC1 = 0x01,
-    MBC1Ram = 0x02,
-    MBC1BattRam = 0x03,
-    MBC2 = 0x05,
-    MBC2Batt = 0x06,
-    MBC3RTC = 0x0F,
-    MBC3RamRTC = 0x10,
-    MBC3 = 0x11,
-    MBC3Ram = 0x12,
-    MBC3BattRam = 0x13,
-    MBC5 = 0x19,
-    MBC5Ram = 0x1A,
-    MBC5BattRam = 0x1B,
+    ROM,
+    MBC1,
+    MBC1Ram,
+    MBC1BattRam,
+    MBC2,
+    MBC2Batt,
+    MBC3,
+    MBC3Ram,
+    MBC3BattRam,
+    MBC3RTC,
+    MBC3RamRTC,
+    MBC30,
+    MBC5,
+    MBC5Ram,
+    MBC5BattRam,
+}
+
+impl MapperType {
+    fn from_u8(mapper: u8) -> Result<Self> {
+        match mapper {
+            0x00 => Ok(MapperType::ROM),
+            0x01 => Ok(MapperType::MBC1),
+            0x02 => Ok(MapperType::MBC1Ram),
+            0x03 => Ok(MapperType::MBC1BattRam),
+            0x05 => Ok(MapperType::MBC2),
+            0x06 => Ok(MapperType::MBC2Batt),
+            0x0F => Ok(MapperType::MBC3RTC),
+            0x10 => Ok(MapperType::MBC3RamRTC),
+            0x11 => Ok(MapperType::MBC3),
+            0x12 => Ok(MapperType::MBC3Ram),
+            0x13 => Ok(MapperType::MBC3BattRam),
+            0x19 => Ok(MapperType::MBC5),
+            0x1A => Ok(MapperType::MBC5Ram),
+            0x1B => Ok(MapperType::MBC5BattRam),
+            _ => bail!("Invalid Mapper: {:#02x}", mapper),
+        }
+    }
 }
 
 pub struct Mapper {
@@ -90,19 +110,26 @@ impl Mapper {
             | MapperType::MBC3Ram
             | MapperType::MBC3BattRam
             | MapperType::MBC3RTC
-            | MapperType::MBC3RamRTC => match addr {
+            | MapperType::MBC3RamRTC
+            | MapperType::MBC30 => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x3FFF => {
-                    // MBC3 only uses 128 banks max, but MBC30 (used by Japanese Crystal only)
-                    // can have up to 256. AFAIK there is no way to differentiate the two.
-                    let val = val as u16 % self.num_rom_banks;
-                    self.high_bank = if val == 0 { 1 } else { val };
+                    self.high_bank = if val as u16 % self.num_rom_banks == 0 {
+                        1
+                    } else {
+                        val as u16
+                    };
                 }
                 0x4000..=0x5FFF => {
-                    if val < 0x04 {
+                    // MBC3 only uses 32KB of SRAM at most, but MBC30 can use up to 64KB
+                    let max_ram_banks = match self.mapper_type {
+                        MapperType::MBC30 => 0x08,
+                        _ => 0x04,
+                    };
+                    if val < max_ram_banks {
                         self.ram_bank = val;
                         self.rtc_enabled = false;
-                    } else if val >= 0x08 && val <= 0x0C {
+                    } else if val >= max_ram_banks && val <= 0x0C {
                         self.rtc_register = val;
                         self.rtc_enabled = true;
                     } else {
@@ -169,8 +196,6 @@ impl Cartridge {
         let size = cart[0x148];
         let ram = cart[0x149];
 
-        let mapper_type = MapperType::from_u8(mapper)
-            .ok_or_else(|| anyhow::anyhow!("Invalid Mapper: {:#02x}", mapper))?;
         let num_rom_banks = match size {
             0x00..=0x08 => 2 << size,
             _ => bail!("Invalid ROM Size: {:#02x}", size),
@@ -187,10 +212,24 @@ impl Cartridge {
                 0x05 => 64,
                 _ => bail!("Invalid RAM Size: {:#02x}", ram),
             };
-        if let MapperType::MBC2 | MapperType::MBC2Batt = mapper_type {
-            ram_init_val = 0xf0;
-            ram_size = 4096;
-        };
+
+        let mut mapper_type = MapperType::from_u8(mapper)?;
+        match mapper_type {
+            MapperType::MBC2 | MapperType::MBC2Batt => {
+                ram_init_val = 0xf0;
+                ram_size = 4096;
+            }
+            MapperType::MBC3
+            | MapperType::MBC3Ram
+            | MapperType::MBC3BattRam
+            | MapperType::MBC3RTC
+            | MapperType::MBC3RamRTC => {
+                if num_rom_banks > 128 || ram_size > 0x8000 {
+                    mapper_type = MapperType::MBC30;
+                }
+            }
+            _ => {}
+        }
         Ok(Cartridge {
             contents: cart,
             ram: vec![ram_init_val; ram_size as usize],

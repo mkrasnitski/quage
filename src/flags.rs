@@ -6,14 +6,14 @@ pub struct Flags {
     pub c: bool,
 }
 
-impl std::convert::From<Flags> for u8 {
+impl From<Flags> for u8 {
     fn from(f: Flags) -> u8 {
         ((f.z as u8) << 7) | ((f.n as u8) << 6) | ((f.h as u8) << 5) | ((f.c as u8) << 4)
     }
 }
 
-impl std::convert::From<u8> for Flags {
-    fn from(f: u8) -> Flags {
+impl From<u8> for Flags {
+    fn from(f: u8) -> Self {
         Flags {
             z: (f & (1 << 7)) != 0,
             n: (f & (1 << 6)) != 0,

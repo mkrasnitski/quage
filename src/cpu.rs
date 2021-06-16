@@ -70,7 +70,7 @@ impl CPU {
             cpu.registers.l = 0x4d;
             cpu.registers.f = Flags::from(0xb0);
             cpu.sp = 0xfffe;
-            cpu.bus.timers.DIV = 0x6AF9;
+            cpu.bus.timers.DIV = 0xABE4; // ABCC is the actual right value here
             cpu.bus.write_byte(0xff10, 0x80);
             cpu.bus.write_byte(0xff11, 0xbf);
             cpu.bus.write_byte(0xff12, 0xf3);
@@ -442,26 +442,26 @@ impl CPU {
             OP::JR(condition) => {
                 let arg = instr.byte_arg() as i8 as u16;
                 if self.check_branch_condition(condition) {
+                    self.tick_mclock();
                     self.pc = self.pc.wrapping_add(arg);
                     instr.cycles += 4;
-                    self.tick_mclock();
                 }
             }
             OP::JP(condition) => {
                 let arg = instr.word_arg();
                 if self.check_branch_condition(condition) {
+                    self.tick_mclock();
                     self.pc = arg;
                     instr.cycles += 4;
-                    self.tick_mclock();
                 }
             }
             OP::JPHL => self.pc = self.read_word(Word::HL),
             OP::CALL(condition) => {
                 let arg = instr.word_arg();
                 if self.check_branch_condition(condition) {
+                    self.tick_mclock();
                     self.push_word(self.pc);
                     self.pc = arg;
-                    self.tick_mclock();
                     instr.cycles += 12;
                 }
             }
@@ -476,9 +476,9 @@ impl CPU {
                     _ => self.tick_mclock(),
                 };
                 if self.check_branch_condition(condition) {
+                    self.tick_mclock();
                     self.pc = self.pop_word();
                     instr.cycles += 12;
-                    self.tick_mclock();
                 }
             }
             OP::RETI => {
