@@ -172,8 +172,6 @@ pub struct PPU {
     bg_fifo: FIFO,
     sprite_fifo: FIFO,
     current_sprite: Option<Sprite>,
-    fifo_display: Display<W_WIDTH, W_HEIGHT>,
-    fifo_viewport: [[Color; W_WIDTH]; W_HEIGHT],
 
     mode: u8,
     dots: u64,
@@ -193,10 +191,9 @@ pub struct PPU {
 impl PPU {
     pub fn new(config: &Config) -> Result<Self> {
         let display_manager = DisplayManager::new()?;
-        let display = display_manager.new_display((468, 350), config.show_fps)?;
-        let fifo_display = display_manager.new_display((968, 350), false)?;
+        let display = display_manager.new_display(None, config.show_fps)?;
         let tile_display = if config.dump_tiles {
-            Some(display_manager.new_display((1468, 280), false)?)
+            Some(display_manager.new_display(Some((1220, 250)), false)?)
         } else {
             None
         };
@@ -215,8 +212,6 @@ impl PPU {
             bg_fifo: FIFO::new(),
             sprite_fifo: FIFO::new(),
             current_sprite: None,
-            fifo_viewport: [[Color::WHITE; W_WIDTH]; W_HEIGHT],
-            fifo_display,
 
             num_pixels: 0,
             num_tiles: 0,
@@ -246,7 +241,7 @@ impl PPU {
     //     }
     // }
 
-    fn memory_lock(&self, addr: u16) -> bool {
+    fn memory_lock(&self, _addr: u16) -> bool {
         false
     }
 
@@ -328,7 +323,6 @@ impl PPU {
 
     pub fn toggle_frame_limiter(&mut self) {
         self.display.toggle_frame_limiter();
-        self.fifo_display.toggle_frame_limiter();
         if let Some(tile_display) = self.tile_display.as_mut() {
             tile_display.toggle_frame_limiter();
         }
@@ -339,8 +333,7 @@ impl PPU {
             self.cycles = 0;
             self.enable_display_events = true;
             self.display.draw(&self.viewport);
-            self.fifo_display.draw(&self.fifo_viewport);
-            let tiles = self.dump_tiles(0x8000);
+            let tiles = self.dump_tiles();
             if let Some(tile_display) = self.tile_display.as_mut() {
                 tile_display.draw(&tiles);
             }
@@ -393,7 +386,6 @@ impl PPU {
                         self.lcd_just_turned_on = false;
                     }
                     self.set_mode(3);
-                    self.draw_line();
                     self.clear_fifos();
                 }
                 self.draw_fifo();
@@ -460,11 +452,6 @@ impl PPU {
                 let sprite = Sprite::from_oam_data(&self.oam[4 * i..4 * i + 4]);
                 let pos = self.registers.LY + 16 - sprite.y;
                 if sprite.x > 0 && (0..sprite_height).contains(&pos) {
-                    // let idx = self
-                    //     .oam_sprites
-                    //     .binary_search_by(|s| sprite.x.cmp(&s.x))
-                    //     .unwrap_or_else(|j| j);
-                    // self.oam_sprites.insert(idx, sprite);
                     self.oam_sprites.push(sprite);
                 }
             }
@@ -522,7 +509,7 @@ impl PPU {
                                 };
                                 let x = self.num_pixels as usize;
                                 let y = self.registers.LY as usize;
-                                self.fifo_viewport[y][x] = pixel.decode();
+                                self.viewport[y][x] = pixel.decode();
                                 self.num_pixels += 1;
                             }
                         }
@@ -683,102 +670,10 @@ impl PPU {
         }
     }
 
-    fn draw_line(&mut self) {
-        let mut scanline = [Pixel::default(); W_WIDTH];
-        // LCD Enable
-        if is_bit_set(self.registers.LCDC, 7) {
-            if is_bit_set(self.registers.LCDC, 0) {
-                // Background
-                let bg_tilemap = match is_bit_set(self.registers.LCDC, 3) {
-                    true => 0x9C00,
-                    false => 0x9800,
-                };
-                let bg_y = self.registers.SCY.wrapping_add(self.registers.LY);
-                for i in 0u8..32 {
-                    let bg_tile_num =
-                        self.read_byte_direct(bg_tilemap + 32 * ((bg_y / 8) as u16) + i as u16);
-                    let bg_tile_row = self.decode_tile_row(bg_tile_num, bg_y % 8, false);
-                    for j in 0u8..8 {
-                        let bg_x = (8 * i + j).wrapping_sub(self.registers.SCX) as usize;
-                        if bg_x < W_WIDTH {
-                            scanline[bg_x] = Pixel {
-                                color: bg_tile_row[j as usize],
-                                palette: self.registers.BGP,
-                                priority: false,
-                            };
-                        }
-                    }
-                }
-
-                // Window
-                if is_bit_set(self.registers.LCDC, 5) && self.wy_ly_latch {
-                    let win_tilemap = match is_bit_set(self.registers.LCDC, 6) {
-                        true => 0x9C00,
-                        false => 0x9800,
-                    };
-                    for i in 0u8..32 {
-                        let win_tile_num = self.read_byte_direct(
-                            win_tilemap + 32 * ((self.registers.WC / 8) as u16) + i as u16,
-                        );
-                        let win_tile_row =
-                            self.decode_tile_row(win_tile_num, self.registers.WC % 8, false);
-                        for j in 0..8 {
-                            let win_x = 8 * i as usize + j + self.registers.WX as usize - 7;
-                            if (0..W_WIDTH).contains(&win_x) {
-                                scanline[win_x] = Pixel {
-                                    color: win_tile_row[j as usize],
-                                    palette: self.registers.BGP,
-                                    priority: false,
-                                };
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Sprites
-            let sprite_height = ((self.registers.LCDC & (1 << 2)) >> 2) as u8 + 1;
-            if is_bit_set(self.registers.LCDC, 1) {
-                for sprite in self.oam_sprites.iter() {
-                    let sprite_tile_num = sprite.tile_num & (0xFF - sprite_height + 1);
-                    let sprite_palette = match sprite.palette {
-                        true => self.registers.OBP1,
-                        false => self.registers.OBP0,
-                    };
-
-                    let mut row_num = self.registers.LY + 16 - sprite.y;
-                    if sprite.y_flip {
-                        row_num = 8 * sprite_height - 1 - row_num
-                    };
-                    let sprite_tile_row = self.decode_tile_row(sprite_tile_num, row_num, true);
-                    for j in 0..8 {
-                        let col_num = if sprite.x_flip { 7 - j } else { j };
-                        let obj_x = (sprite.x as usize + j).wrapping_sub(8);
-                        let color_num = sprite_tile_row[col_num];
-                        if (0..W_WIDTH).contains(&obj_x)
-                            && color_num != 0
-                            && (!sprite.priority || scanline[obj_x].color == 0)
-                        {
-                            scanline[obj_x] = Pixel {
-                                color: color_num,
-                                palette: sprite_palette,
-                                priority: sprite.priority,
-                            };
-                        }
-                    }
-                }
-            }
-        }
-
-        for i in 0..160 {
-            self.viewport[self.registers.LY as usize][i] = scanline[i].decode();
-        }
-    }
-
-    fn dump_tiles(&self, base: u16) -> [[Color; 128]; 192] {
+    fn dump_tiles(&self) -> [[Color; 128]; 192] {
         let mut bg = [[Color::WHITE; 128]; 192];
         for i in 0..384 {
-            let tile_addr = base + i * 16;
+            let tile_addr = 0x8000 + i * 16;
             let tile_y = i / 16;
             let tile_x = i % 16;
             for j in 0..8 {
@@ -790,28 +685,13 @@ impl PPU {
                         palette: self.registers.BGP,
                         priority: false,
                     };
-                    bg[(8 * tile_y + j) as usize][(8 * tile_x + 7 - k) as usize] = pixel.decode();
+                    let x = (8 * tile_x + 7 - k) as usize;
+                    let y = (8 * tile_y + j) as usize;
+                    bg[y][x] = pixel.decode();
                 }
             }
         }
         bg
-    }
-
-    fn decode_tile_row(&self, tile_num: u8, row_num: u8, is_sprite: bool) -> [u8; 8] {
-        let mut row = [0; 8];
-        let tile_row_offset =
-            if !is_bit_set(self.registers.LCDC, 4) && tile_num < 0x80 && !is_sprite {
-                0x9000
-            } else {
-                0x8000
-            } + 16 * tile_num as u16
-                + 2 * row_num as u16;
-        let hi = self.read_byte_direct(tile_row_offset + 1);
-        let lo = self.read_byte_direct(tile_row_offset);
-        for i in 0..8 {
-            row[7 - i] = (((hi >> i) & 1) << 1) | ((lo >> i) & 1);
-        }
-        row
     }
 
     fn decode_tile_bytes(&self, hi: u8, lo: u8) -> [u8; 8] {

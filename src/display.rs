@@ -28,7 +28,7 @@ impl DisplayManager {
 
     pub fn new_display<const W: usize, const H: usize>(
         &self,
-        position: (i32, i32),
+        position: Option<(i32, i32)>,
         show_fps: bool,
     ) -> Result<Display<W, H>> {
         Display::new(&self.context, position, show_fps)
@@ -73,22 +73,25 @@ pub struct Display<const W: usize, const H: usize> {
 }
 
 impl<const W: usize, const H: usize> Display<W, H> {
-    pub fn new(context: &sdl2::Sdl, position: (i32, i32), show_fps: bool) -> Result<Self> {
-        let (x, y) = position;
+    pub fn new(context: &sdl2::Sdl, position: Option<(i32, i32)>, show_fps: bool) -> Result<Self> {
+        let mut window = context.video().map_err(Error::msg)?.window(
+            "gb-emu",
+            (W * W_SCALE) as u32,
+            (H * W_SCALE) as u32,
+        );
         Ok(Display {
             frames: 0,
             time: Instant::now(),
             last_frame: Instant::now(),
             limit_framerate: true,
             show_fps,
-            canvas: context
-                .video()
-                .map_err(Error::msg)?
-                .window("gb-emu", (W * W_SCALE) as u32, (H * W_SCALE) as u32)
-                .position(x, y)
-                .build()?
-                .into_canvas()
-                .build()?,
+            canvas: match position {
+                Some((x, y)) => window.position(x, y),
+                None => window.position_centered(),
+            }
+            .build()?
+            .into_canvas()
+            .build()?,
         })
     }
 
