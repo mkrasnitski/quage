@@ -45,6 +45,45 @@ impl PPURegisters {
 struct Pixel {
     color: u8,
     palette: u8,
+    priority: bool,
+}
+
+impl Pixel {
+    fn decode(&self) -> Color {
+        let color = (self.palette >> (2 * self.color)) & 0b11;
+        match color {
+            0 => Color::WHITE,
+            1 => Color::RGB(0xaa, 0xaa, 0xaa),
+            2 => Color::RGB(0x55, 0x55, 0x55),
+            3 => Color::BLACK,
+            _ => panic!("Incorrect palette color: {}", color),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Sprite {
+    tile_num: u8,
+    x: u8,
+    y: u8,
+    priority: bool,
+    x_flip: bool,
+    y_flip: bool,
+    palette: bool,
+}
+
+impl Sprite {
+    fn from_oam_data(data: &[u8]) -> Self {
+        Sprite {
+            tile_num: data[2],
+            x: data[1],
+            y: data[0],
+            priority: is_bit_set(data[3], 7),
+            x_flip: is_bit_set(data[3], 5),
+            y_flip: is_bit_set(data[3], 6),
+            palette: is_bit_set(data[3], 4),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -52,7 +91,6 @@ enum FetcherState {
     GetTileNum,
     GetLoByte,
     GetHiByte,
-    Sleep,
 }
 
 impl Default for FetcherState {
@@ -79,11 +117,10 @@ impl Fetcher {
             0 => Some(FetcherState::GetTileNum),
             2 => Some(FetcherState::GetLoByte),
             4 => Some(FetcherState::GetHiByte),
-            6 => Some(FetcherState::Sleep),
             _ => None,
         };
         self.cycles += 1;
-        if self.cycles >= 8 && !self.push {
+        if self.cycles >= 6 && !self.push {
             self.push = true;
         }
         if let Some(state) = new_state {
@@ -103,8 +140,6 @@ impl Fetcher {
 struct FIFO {
     fetcher: Fetcher,
     queue: VecDeque<Pixel>,
-    num_pixels: u8,
-    num_tiles: u8,
     thrown_away: u8,
 }
 
@@ -113,27 +148,12 @@ impl FIFO {
         FIFO {
             fetcher: Fetcher::default(),
             queue: VecDeque::with_capacity(8),
-            num_pixels: 0,
-            num_tiles: 0,
             thrown_away: 0,
         }
     }
 
     pub fn clear(&mut self) {
         *self = FIFO::new();
-    }
-}
-
-impl Pixel {
-    fn decode(&self) -> Color {
-        let color = (self.palette >> (2 * self.color)) & 0b11;
-        match color {
-            0 => Color::WHITE,
-            1 => Color::RGB(0xaa, 0xaa, 0xaa),
-            2 => Color::RGB(0x55, 0x55, 0x55),
-            3 => Color::BLACK,
-            _ => panic!("Incorrect palette color: {}", color),
-        }
     }
 }
 
@@ -144,18 +164,23 @@ pub struct PPU {
     registers: PPURegisters,
     interrupts: PPUInterrupts,
     viewport: [[Color; W_WIDTH]; W_HEIGHT],
-    oam_sprites: Vec<usize>,
+    oam_sprites: Vec<Sprite>,
     oam_index: usize,
     display: Display<W_WIDTH, W_HEIGHT>,
     tile_display: Option<Display<128, 192>>,
 
     bg_fifo: FIFO,
+    sprite_fifo: FIFO,
+    current_sprite: Option<Sprite>,
     fifo_display: Display<W_WIDTH, W_HEIGHT>,
     fifo_viewport: [[Color; W_WIDTH]; W_HEIGHT],
 
     mode: u8,
     dots: u64,
     cycles: u64,
+
+    num_pixels: u8,
+    num_tiles: u8,
 
     enable_display_events: bool,
     stat_condition: bool,
@@ -188,8 +213,13 @@ impl PPU {
             tile_display,
 
             bg_fifo: FIFO::new(),
+            sprite_fifo: FIFO::new(),
+            current_sprite: None,
             fifo_viewport: [[Color::WHITE; W_WIDTH]; W_HEIGHT],
             fifo_display,
+
+            num_pixels: 0,
+            num_tiles: 0,
 
             mode: 0,
             dots: 0,
@@ -204,16 +234,20 @@ impl PPU {
         })
     }
 
+    // fn memory_lock(&self, addr: u16) -> bool {
+    //     if !is_bit_set(self.registers.LCDC, 7) {
+    //         false
+    //     } else if (0x8000..=0x9FFF).contains(&addr) {
+    //         self.mode == 3
+    //     } else if (0xFE00..=0xFE9F).contains(&addr) {
+    //         self.mode >= 2
+    //     } else {
+    //         false
+    //     }
+    // }
+
     fn memory_lock(&self, addr: u16) -> bool {
-        if !is_bit_set(self.registers.LCDC, 7) {
-            false
-        } else if (0x8000..=0x9FFF).contains(&addr) {
-            self.mode == 3
-        } else if (0xFE00..=0xFE9F).contains(&addr) {
-            self.mode >= 2
-        } else {
-            false
-        }
+        false
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
@@ -360,7 +394,7 @@ impl PPU {
                     }
                     self.set_mode(3);
                     self.draw_line();
-                    self.bg_fifo.clear();
+                    self.clear_fifos();
                 }
                 self.draw_fifo();
             }
@@ -409,6 +443,13 @@ impl PPU {
         }
     }
 
+    fn clear_fifos(&mut self) {
+        self.bg_fifo.clear();
+        self.sprite_fifo.clear();
+        self.num_pixels = 0;
+        self.num_tiles = 0;
+    }
+
     fn oam_scan(&mut self) {
         let sprite_height = match is_bit_set(self.registers.LCDC, 2) {
             true => 16,
@@ -416,16 +457,15 @@ impl PPU {
         };
         for i in self.oam_index..self.oam_index + 2 {
             if self.oam_sprites.len() < 10 {
-                let sprite_y = self.oam[4 * i];
-                let sprite_x = self.oam[4 * i + 1];
-                let sprite_pos = self.registers.LY + 16 - sprite_y;
-                if sprite_x > 0 && (0..sprite_height).contains(&sprite_pos) {
-                    let get_sprite_x = |j| self.oam[4 * j as usize + 1];
-                    let idx = self
-                        .oam_sprites
-                        .binary_search_by(|&j| sprite_x.cmp(&get_sprite_x(j)))
-                        .unwrap_or_else(|j| j);
-                    self.oam_sprites.insert(idx, i);
+                let sprite = Sprite::from_oam_data(&self.oam[4 * i..4 * i + 4]);
+                let pos = self.registers.LY + 16 - sprite.y;
+                if sprite.x > 0 && (0..sprite_height).contains(&pos) {
+                    // let idx = self
+                    //     .oam_sprites
+                    //     .binary_search_by(|s| sprite.x.cmp(&s.x))
+                    //     .unwrap_or_else(|j| j);
+                    // self.oam_sprites.insert(idx, sprite);
+                    self.oam_sprites.push(sprite);
                 }
             }
         }
@@ -435,56 +475,82 @@ impl PPU {
     fn draw_fifo(&mut self) {
         // FIFO pushes pixels out every T-cycle
         for _ in 0..4 {
-            // Throw away pixels that would normally be off screen
-            // This includes the first SCX % 8 pixels of the background,
-            // and the first pixels of the window if WX < 7
-            let num_to_throw = match self.drawing_window {
-                true => match self.registers.WX {
-                    0..=6 => 7 - self.registers.WX,
-                    _ => 0,
-                },
-                false => self.registers.SCX % 8,
-            };
-            if self.bg_fifo.num_pixels == 0 && self.bg_fifo.thrown_away < num_to_throw {
-                if self.bg_fifo.queue.pop_front().is_some() {
-                    self.bg_fifo.thrown_away += 1;
-                }
-                self.step_fetcher();
-            } else if self.bg_fifo.num_pixels < 160 {
-                // Pop pixels until we have 160 on the line, then mode 3 is done
-                if is_bit_set(self.registers.LCDC, 7) {
-                    if is_bit_set(self.registers.LCDC, 0) {
-                        if let Some(pixel) = self.bg_fifo.queue.pop_front() {
-                            let x = self.bg_fifo.num_pixels as usize;
-                            let y = self.registers.LY as usize;
-                            self.fifo_viewport[y][x] = pixel.decode();
-                            self.bg_fifo.num_pixels += 1;
-                        }
+            if is_bit_set(self.registers.LCDC, 1) {
+                for i in 0..self.oam_sprites.len() {
+                    let sprite = self.oam_sprites[i];
+                    if sprite.x <= self.num_pixels + 8 && self.current_sprite.is_none() {
+                        self.current_sprite = Some(sprite);
+                        self.sprite_fifo.fetcher.reset();
+                        self.oam_sprites.remove(i);
+                        break;
                     }
-                    // Check if we're inside the window, and reset the FIFO if we are
-                    let window_x = self.bg_fifo.num_pixels + 7;
-                    if is_bit_set(self.registers.LCDC, 5)
-                        && (self.registers.WX..167).contains(&window_x)
-                        && self.wy_ly_latch
-                        && !self.drawing_window
-                    {
-                        self.drawing_window = true;
-                        self.bg_fifo.fetcher.reset();
-                        self.bg_fifo.queue.clear();
-                    }
-                    self.step_fetcher();
                 }
+            }
+            if self.current_sprite.is_some() {
+                self.step_sprite_fetcher();
             } else {
-                self.set_mode(0);
-                if self.drawing_window {
-                    self.drawing_window = false;
-                    self.registers.WC += 1;
+                // Throw away pixels that would normally be off screen
+                // This includes the first SCX % 8 pixels of the background,
+                // and the first pixels of the window if WX < 7
+                let num_to_throw = match self.drawing_window {
+                    true => match self.registers.WX {
+                        0..=6 => 7 - self.registers.WX,
+                        _ => 0,
+                    },
+                    false => self.registers.SCX % 8,
+                };
+                if self.num_pixels == 0 && self.bg_fifo.thrown_away < num_to_throw {
+                    if self.bg_fifo.queue.pop_front().is_some() {
+                        self.bg_fifo.thrown_away += 1;
+                    }
+                    self.step_bg_fetcher();
+                } else if self.num_pixels < 160 {
+                    // Pop pixels until we have 160 on the line, then mode 3 is done
+                    if is_bit_set(self.registers.LCDC, 7) {
+                        if is_bit_set(self.registers.LCDC, 0) {
+                            if let Some(bg_pixel) = self.bg_fifo.queue.pop_front() {
+                                let pixel = match self.sprite_fifo.queue.pop_front() {
+                                    Some(sprite_pixel) => {
+                                        match (sprite_pixel.priority && bg_pixel.color != 0)
+                                            || sprite_pixel.color == 0
+                                        {
+                                            true => bg_pixel,
+                                            false => sprite_pixel,
+                                        }
+                                    }
+                                    None => bg_pixel,
+                                };
+                                let x = self.num_pixels as usize;
+                                let y = self.registers.LY as usize;
+                                self.fifo_viewport[y][x] = pixel.decode();
+                                self.num_pixels += 1;
+                            }
+                        }
+                        // Check if we're inside the window, and reset the FIFO if we are
+                        let window_x = self.num_pixels + 7;
+                        if is_bit_set(self.registers.LCDC, 5)
+                            && (self.registers.WX..167).contains(&window_x)
+                            && self.wy_ly_latch
+                            && !self.drawing_window
+                        {
+                            self.drawing_window = true;
+                            self.bg_fifo.fetcher.reset();
+                            self.bg_fifo.queue.clear();
+                        }
+                        self.step_bg_fetcher();
+                    }
+                } else {
+                    self.set_mode(0);
+                    if self.drawing_window {
+                        self.drawing_window = false;
+                        self.registers.WC += 1;
+                    }
                 }
             }
         }
     }
 
-    fn step_fetcher(&mut self) {
+    fn step_bg_fetcher(&mut self) {
         let fifo_state = self.bg_fifo.fetcher.step_state();
         if let Some(state) = fifo_state {
             match state {
@@ -501,13 +567,11 @@ impl PPU {
                     // Figure out what tile we're drawing
                     let (x, y) = match self.drawing_window {
                         true => (
-                            8 * self.bg_fifo.num_tiles
-                                - (self.registers.SCX % 8)
-                                - (self.registers.WX - 7),
+                            8 * self.num_tiles - (self.registers.SCX % 8) - (self.registers.WX - 7),
                             self.registers.WC,
                         ),
                         false => (
-                            8 * self.bg_fifo.num_tiles + self.registers.SCX,
+                            8 * self.num_tiles + self.registers.SCX,
                             self.registers.LY.wrapping_add(self.registers.SCY),
                         ),
                     };
@@ -533,7 +597,6 @@ impl PPU {
                     self.bg_fifo.fetcher.tile_hi =
                         self.read_byte_direct(self.bg_fifo.fetcher.tile_addr + 1);
                 }
-                FetcherState::Sleep => {}
             }
         }
         // If the FIFO is empty, decode the row of 8 pixels and push them onto it
@@ -544,10 +607,79 @@ impl PPU {
                 self.bg_fifo.queue.push_back(Pixel {
                     color,
                     palette: self.registers.BGP,
+                    priority: false,
                 })
             }
-            self.bg_fifo.num_tiles += 1;
+            self.num_tiles += 1;
             self.bg_fifo.fetcher.reset();
+        }
+    }
+
+    fn step_sprite_fetcher(&mut self) {
+        if let Some(state) = self.sprite_fifo.fetcher.step_state() {
+            match state {
+                FetcherState::GetTileNum => {
+                    let sprite = self.current_sprite.unwrap();
+                    let sprite_height = match is_bit_set(self.registers.LCDC, 2) {
+                        true => 2,
+                        false => 1,
+                    };
+                    self.sprite_fifo.fetcher.tile_num =
+                        sprite.tile_num & (0xFF - sprite_height + 1);
+                    let row_num = self.registers.LY + 16 - sprite.y;
+                    self.sprite_fifo.fetcher.row_num = match sprite.y_flip {
+                        true => 8 * sprite_height - 1 - row_num,
+                        false => row_num,
+                    }
+                }
+                FetcherState::GetLoByte => {
+                    self.sprite_fifo.fetcher.tile_addr = 0x8000
+                        + 16 * self.sprite_fifo.fetcher.tile_num as u16
+                        + 2 * self.sprite_fifo.fetcher.row_num as u16;
+                    self.sprite_fifo.fetcher.tile_lo =
+                        self.read_byte_direct(self.sprite_fifo.fetcher.tile_addr);
+                }
+                FetcherState::GetHiByte => {
+                    self.sprite_fifo.fetcher.tile_hi =
+                        self.read_byte_direct(self.sprite_fifo.fetcher.tile_addr + 1);
+                }
+            }
+        }
+        if self.sprite_fifo.fetcher.push {
+            let sprite = self.current_sprite.unwrap();
+            let sprite_tile_row = self.decode_tile_bytes(
+                self.sprite_fifo.fetcher.tile_hi,
+                self.sprite_fifo.fetcher.tile_lo,
+            );
+            let tile_row_iter: Box<dyn Iterator<Item = _>> = match sprite.x_flip {
+                true => Box::new(sprite_tile_row.iter().rev()),
+                false => Box::new(sprite_tile_row.iter()),
+            };
+            for (i, &color) in tile_row_iter.enumerate() {
+                let pixel = Pixel {
+                    color,
+                    palette: if sprite.palette {
+                        self.registers.OBP1
+                    } else {
+                        self.registers.OBP0
+                    },
+                    priority: sprite.priority,
+                };
+                let throw_away = if sprite.x < 8 { 8 - sprite.x } else { 0 };
+                if i < throw_away as usize {
+                    continue;
+                }
+                let idx = i - throw_away as usize;
+                if idx < self.sprite_fifo.queue.len() {
+                    if self.sprite_fifo.queue[idx].color == 0 {
+                        self.sprite_fifo.queue[idx] = pixel;
+                    }
+                } else {
+                    self.sprite_fifo.queue.push_back(pixel)
+                }
+            }
+            self.current_sprite = None;
+            self.sprite_fifo.fetcher.reset();
         }
     }
 
@@ -572,6 +704,7 @@ impl PPU {
                             scanline[bg_x] = Pixel {
                                 color: bg_tile_row[j as usize],
                                 palette: self.registers.BGP,
+                                priority: false,
                             };
                         }
                     }
@@ -595,6 +728,7 @@ impl PPU {
                                 scanline[win_x] = Pixel {
                                     color: win_tile_row[j as usize],
                                     palette: self.registers.BGP,
+                                    priority: false,
                                 };
                             }
                         }
@@ -605,39 +739,30 @@ impl PPU {
             // Sprites
             let sprite_height = ((self.registers.LCDC & (1 << 2)) >> 2) as u8 + 1;
             if is_bit_set(self.registers.LCDC, 1) {
-                for sprite_index in self.oam_sprites.iter() {
-                    let sprite_y = self.oam[4 * sprite_index];
-                    let sprite_x = self.oam[4 * sprite_index + 1];
-                    let sprite_tile_num =
-                        self.oam[4 * sprite_index + 2] & (0xFF - sprite_height + 1);
-                    let sprite_flags = self.oam[4 * sprite_index + 3];
-
-                    let sprite_palette = if is_bit_set(sprite_flags, 4) {
-                        self.registers.OBP1
-                    } else {
-                        self.registers.OBP0
+                for sprite in self.oam_sprites.iter() {
+                    let sprite_tile_num = sprite.tile_num & (0xFF - sprite_height + 1);
+                    let sprite_palette = match sprite.palette {
+                        true => self.registers.OBP1,
+                        false => self.registers.OBP0,
                     };
 
-                    let mut row_num = self.registers.LY + 16 - sprite_y;
-                    if is_bit_set(sprite_flags, 6) {
+                    let mut row_num = self.registers.LY + 16 - sprite.y;
+                    if sprite.y_flip {
                         row_num = 8 * sprite_height - 1 - row_num
                     };
                     let sprite_tile_row = self.decode_tile_row(sprite_tile_num, row_num, true);
                     for j in 0..8 {
-                        let col_num = if is_bit_set(sprite_flags, 5) {
-                            7 - j
-                        } else {
-                            j
-                        };
-                        let obj_x = (sprite_x as usize + j).wrapping_sub(8);
+                        let col_num = if sprite.x_flip { 7 - j } else { j };
+                        let obj_x = (sprite.x as usize + j).wrapping_sub(8);
                         let color_num = sprite_tile_row[col_num];
                         if (0..W_WIDTH).contains(&obj_x)
                             && color_num != 0
-                            && (!is_bit_set(sprite_flags, 7) || scanline[obj_x].color == 0)
+                            && (!sprite.priority || scanline[obj_x].color == 0)
                         {
                             scanline[obj_x] = Pixel {
                                 color: color_num,
                                 palette: sprite_palette,
+                                priority: sprite.priority,
                             };
                         }
                     }
@@ -663,6 +788,7 @@ impl PPU {
                     let pixel = Pixel {
                         color: (((hi >> k) & 1) << 1) | ((lo >> k) & 1),
                         palette: self.registers.BGP,
+                        priority: false,
                     };
                     bg[(8 * tile_y + j) as usize][(8 * tile_x + 7 - k) as usize] = pixel.decode();
                 }
