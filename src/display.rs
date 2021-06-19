@@ -1,15 +1,15 @@
 use anyhow::{Error, Result};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
+use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::render::Canvas;
 use sdl2::video::Window;
-use std::time::{Duration, Instant};
+use spin_sleep::LoopHelper;
 
 pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
 const W_SCALE: usize = 3;
+const FRAMERATE: f64 = 4194304.0 / 70224.0;
 
 pub struct DisplayManager {
     context: sdl2::Sdl,
@@ -64,12 +64,10 @@ pub enum DisplayEvent {
 }
 
 pub struct Display<const W: usize, const H: usize> {
-    frames: u64,
-    time: Instant,
-    last_frame: Instant,
     limit_framerate: bool,
     show_fps: bool,
     canvas: Canvas<Window>,
+    frame_limiter: LoopHelper,
 }
 
 impl<const W: usize, const H: usize> Display<W, H> {
@@ -80,9 +78,6 @@ impl<const W: usize, const H: usize> Display<W, H> {
             (H * W_SCALE) as u32,
         );
         Ok(Display {
-            frames: 0,
-            time: Instant::now(),
-            last_frame: Instant::now(),
             limit_framerate: true,
             show_fps,
             canvas: match position {
@@ -92,6 +87,9 @@ impl<const W: usize, const H: usize> Display<W, H> {
             .build()?
             .into_canvas()
             .build()?,
+            frame_limiter: LoopHelper::builder()
+                .report_interval_s(1.0)
+                .build_with_target_rate(FRAMERATE),
         })
     }
 
@@ -100,43 +98,34 @@ impl<const W: usize, const H: usize> Display<W, H> {
     }
 
     pub fn draw(&mut self, pixels: &[[Color; W]; H]) {
-        self.canvas.set_draw_color(Color::WHITE);
-        self.canvas.clear();
-        for (i, row) in pixels.iter().enumerate() {
-            for (j, &color) in row.iter().enumerate() {
-                match color {
-                    Color::WHITE => continue,
-                    _ => {
-                        self.canvas.set_draw_color(color);
-                        self.canvas
-                            .fill_rect(Rect::new(
-                                (j * W_SCALE) as i32,
-                                (i * W_SCALE) as i32,
-                                W_SCALE as u32,
-                                W_SCALE as u32,
-                            ))
-                            .unwrap()
+        let texture_creator = self.canvas.texture_creator();
+        let mut texture = texture_creator
+            .create_texture_streaming(PixelFormatEnum::RGB24, W as u32, H as u32)
+            .unwrap();
+        texture
+            .with_lock(None, |buffer: &mut [u8], pitch: usize| {
+                for (i, row) in pixels.iter().enumerate() {
+                    for (j, &color) in row.iter().enumerate() {
+                        let offset = i * pitch + j * 3;
+                        let (r, g, b) = color.rgb();
+                        buffer[offset] = r;
+                        buffer[offset + 1] = g;
+                        buffer[offset + 2] = b;
                     }
                 }
-            }
-        }
+            })
+            .unwrap();
+        self.canvas.clear();
+        self.canvas.copy(&texture, None, None).unwrap();
         self.canvas.present();
-        self.frames += 1;
-        if self.limit_framerate {
-            let passed = Instant::now().duration_since(self.last_frame);
-            let frame_time = Duration::from_secs_f64(70224.0 / 4194304.0);
-            if passed < frame_time {
-                std::thread::sleep(frame_time - passed);
-            }
-        }
-        self.last_frame = Instant::now();
-        let time_elapsed = Instant::now().duration_since(self.time);
-        if time_elapsed > Duration::from_secs(1) {
+        if let Some(fps) = self.frame_limiter.report_rate() {
             if self.show_fps {
-                println!("{}", self.frames);
+                println!("{:.4}", fps);
             }
-            self.frames = 0;
-            self.time = Instant::now();
         }
+        if self.limit_framerate {
+            self.frame_limiter.loop_sleep();
+        }
+        self.frame_limiter.loop_start();
     }
 }

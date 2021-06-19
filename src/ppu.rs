@@ -102,7 +102,7 @@ impl Default for FetcherState {
 #[derive(Default)]
 struct Fetcher {
     state: FetcherState,
-    cycles: u8,
+    cycles: u32,
     tile_num: u8,
     row_num: u8,
     tile_addr: u16,
@@ -333,9 +333,9 @@ impl PPU {
             self.cycles = 0;
             self.enable_display_events = true;
             self.display.draw(&self.viewport);
-            let tiles = self.dump_tiles();
-            if let Some(tile_display) = self.tile_display.as_mut() {
-                tile_display.draw(&tiles);
+            if self.tile_display.is_some() {
+                let tiles = self.dump_tiles();
+                self.tile_display.as_mut().unwrap().draw(&tiles);
             }
         }
 
@@ -450,8 +450,8 @@ impl PPU {
         for i in self.oam_index..self.oam_index + 2 {
             if self.oam_sprites.len() < 10 {
                 let sprite = Sprite::from_oam_data(&self.oam[4 * i..4 * i + 4]);
-                let pos = self.registers.LY + 16 - sprite.y;
-                if sprite.x > 0 && (0..sprite_height).contains(&pos) {
+                let pos = self.registers.LY + 16;
+                if sprite.x > 0 && (sprite.y..sprite.y + sprite_height).contains(&pos) {
                     self.oam_sprites.push(sprite);
                 }
             }
@@ -554,11 +554,14 @@ impl PPU {
                     // Figure out what tile we're drawing
                     let (x, y) = match self.drawing_window {
                         true => (
-                            8 * self.num_tiles - (self.registers.SCX % 8) - (self.registers.WX - 7),
+                            (8 * self.num_tiles)
+                                .wrapping_sub(self.registers.SCX % 8)
+                                .wrapping_sub(self.registers.WX)
+                                .wrapping_add(7),
                             self.registers.WC,
                         ),
                         false => (
-                            8 * self.num_tiles + self.registers.SCX,
+                            (8 * self.num_tiles).wrapping_add(self.registers.SCX),
                             self.registers.LY.wrapping_add(self.registers.SCY),
                         ),
                     };
