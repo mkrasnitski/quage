@@ -190,7 +190,7 @@ pub struct PPU {
 
 impl PPU {
     pub fn new(config: &Config) -> Result<Self> {
-        let display_manager = DisplayManager::new()?;
+        let display_manager = DisplayManager::new(&config)?;
         let display = display_manager.new_display(None, config.show_fps)?;
         let tile_display = if config.dump_tiles {
             Some(display_manager.new_display(Some((1220, 250)), false)?)

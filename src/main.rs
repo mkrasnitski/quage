@@ -6,6 +6,7 @@ mod debug;
 mod display;
 mod flags;
 mod gb;
+mod hotkeys;
 mod instruction;
 mod joypad;
 mod ppu;

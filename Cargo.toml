@@ -10,8 +10,11 @@ edition = "2018"
 anyhow = "1.0.37"
 clap = "2.33.3"
 enum-primitive-derive = "0.2.1"
+maplit = "1.0.2"
 num-traits = "0.2.14"
 rand = {version = "0.8.4", features=["min_const_gen"]}
+serde = {version = "1.0", features=["derive"]}
 sdl2 = "0.34.3"
 spin_sleep = "1.0.0"
 structopt = "0.3.21"
+toml = "0.5.8"

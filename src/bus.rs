@@ -4,6 +4,7 @@ use anyhow::Result;
 use crate::cartridge::Cartridge;
 use crate::config::Config;
 use crate::display::DisplayEvent;
+use crate::hotkeys::Hotkey;
 use crate::joypad::Joypad;
 use crate::ppu::PPU;
 use crate::sound::Sound;
@@ -86,11 +87,13 @@ impl MemoryBus {
 
     pub fn poll_display_event(&mut self) -> DisplayEvent {
         let event = self.ppu.poll_display_event();
-        if let DisplayEvent::KeyEvent((key, pressed)) = &event {
-            if self.joypad.is_valid_key(key) {
-                self.joypad.update_key(key, *pressed);
-            } else if key == "Space" && *pressed {
-                self.ppu.toggle_frame_limiter();
+        if let DisplayEvent::KeyEvent((Some(key), pressed)) = event {
+            if let Hotkey::ToggleFrameLimiter = key {
+                if pressed {
+                    self.ppu.toggle_frame_limiter();
+                }
+            } else {
+                self.joypad.update_key(key, pressed);
             }
         }
         event

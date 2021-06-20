@@ -10,6 +10,12 @@ pub struct Config {
     #[structopt(long = "bootrom", default_value = "./dmg_boot.bin")]
     pub bootrom_path: PathBuf,
 
+    #[structopt(long, default_value = "./saves")]
+    pub saves_dir: PathBuf,
+
+    #[structopt(long, default_value = "./hotkeys.toml")]
+    pub hotkey_file: PathBuf,
+
     #[structopt(short, long, help = "Print CPU state after each instruction")]
     pub debug: bool,
 
@@ -21,7 +27,4 @@ pub struct Config {
 
     #[structopt(long)]
     pub skip_bootrom: bool,
-
-    #[structopt(long, default_value = "./saves")]
-    pub saves_dir: PathBuf,
 }

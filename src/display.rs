@@ -6,21 +6,32 @@ use sdl2::render::Canvas;
 use sdl2::video::Window;
 use spin_sleep::LoopHelper;
 
+use crate::config::Config;
+use crate::hotkeys::{Hotkey, Keymap};
+
 pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
 const W_SCALE: usize = 3;
 const FRAMERATE: f64 = 4194304.0 / 70224.0;
 
+pub enum DisplayEvent {
+    KeyEvent((Option<Hotkey>, bool)),
+    Quit,
+    None,
+}
+
 pub struct DisplayManager {
+    hotkey_map: Keymap,
     context: sdl2::Sdl,
     event_pump: sdl2::EventPump,
 }
 
 impl DisplayManager {
-    pub fn new() -> Result<Self> {
+    pub fn new(config: &Config) -> Result<Self> {
         let context = sdl2::init().map_err(Error::msg)?;
         let event_pump = context.event_pump().map_err(Error::msg)?;
         Ok(DisplayManager {
+            hotkey_map: Keymap::new(&config.hotkey_file)?,
             context,
             event_pump,
         })
@@ -43,24 +54,20 @@ impl DisplayManager {
                     ..
                 } => return DisplayEvent::Quit,
                 Event::KeyDown {
-                    keycode: Some(x),
+                    keycode: Some(k),
                     repeat: false,
                     ..
-                } => return DisplayEvent::KeyEvent((x.name(), true)),
+                } => return DisplayEvent::KeyEvent((self.hotkey_map.get_hotkey(k), true)),
                 Event::KeyUp {
-                    keycode: Some(x), ..
-                } => return DisplayEvent::KeyEvent((x.name(), false)),
+                    keycode: Some(k),
+                    repeat: false,
+                    ..
+                } => return DisplayEvent::KeyEvent((self.hotkey_map.get_hotkey(k), false)),
                 _ => continue,
             }
         }
         DisplayEvent::None
     }
-}
-
-pub enum DisplayEvent {
-    KeyEvent((String, bool)),
-    Quit,
-    None,
 }
 
 pub struct Display<const W: usize, const H: usize> {

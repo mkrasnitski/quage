@@ -1,0 +1,12 @@
+[joypad]
+up = "p"
+down = ";"
+left = "l"
+right = "'"
+a = "x"
+b = "z"
+start = "return"
+select = "tab"
+
+[emu]
+toggle_frame_limiter = "space"

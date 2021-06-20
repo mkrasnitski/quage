@@ -1,3 +1,5 @@
+use crate::hotkeys::Hotkey;
+
 #[derive(Default)]
 pub struct Joypad {
     a: bool,
@@ -37,30 +39,26 @@ impl Joypad {
         }
     }
 
-    pub fn is_valid_key(&self, key: &str) -> bool {
-        matches!(
-            key,
-            "P" | "L" | ";" | "\'" | "X" | "Z" | "Return" | "Backspace"
-        )
-    }
-
-    pub fn update_key(&mut self, key: &str, pressed: bool) {
-        assert!(self.is_valid_key(key));
+    pub fn update_key(&mut self, key: Hotkey, pressed: bool) {
         match key {
-            "P" => self.up = pressed,
-            "L" => self.left = pressed,
-            ";" => self.down = pressed,
-            "'" => self.right = pressed,
-            "X" => self.a = pressed,
-            "Z" => self.b = pressed,
-            "Return" => self.start = pressed,
-            "Backspace" => self.select = pressed,
+            Hotkey::Up => self.up = pressed,
+            Hotkey::Down => self.down = pressed,
+            Hotkey::Left => self.left = pressed,
+            Hotkey::Right => self.right = pressed,
+            Hotkey::A => self.a = pressed,
+            Hotkey::B => self.b = pressed,
+            Hotkey::Start => self.start = pressed,
+            Hotkey::Select => self.select = pressed,
             _ => {}
         }
 
         match key {
-            "P" | "L" | ";" | "'" => self.request_direction_interrupt = pressed,
-            "X" | "Z" | "Return" | "Backspace" => self.request_buttons_interrupt = pressed,
+            Hotkey::Up | Hotkey::Down | Hotkey::Left | Hotkey::Right => {
+                self.request_direction_interrupt = pressed
+            }
+            Hotkey::A | Hotkey::B | Hotkey::Start | Hotkey::Select => {
+                self.request_buttons_interrupt = pressed
+            }
             _ => {}
         }
     }
