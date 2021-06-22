@@ -24,7 +24,7 @@ struct Registers {
 }
 
 impl std::fmt::Debug for Registers {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{} [{:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}]",
@@ -43,7 +43,7 @@ pub struct CPU {
 }
 
 impl std::fmt::Debug for CPU {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{: >2} {:04x} {:04x} {:?}",

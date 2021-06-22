@@ -270,7 +270,7 @@ pub struct Instruction {
 }
 
 impl fmt::Display for Instruction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         assert!(self.bytes.len() == self.len as usize);
         let bytes = self
             .bytes

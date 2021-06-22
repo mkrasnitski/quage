@@ -10,7 +10,7 @@ fn word_arg(bytes: &[u8]) -> u16 {
 }
 
 impl fmt::Display for R8 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -29,13 +29,13 @@ impl fmt::Display for R8 {
 }
 
 impl fmt::Display for Word {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
 impl fmt::Display for Indirect {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -51,13 +51,13 @@ impl fmt::Display for Indirect {
 }
 
 impl fmt::Display for PushPopTarget {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }
 }
 
 impl fmt::Display for BranchCondition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -73,7 +73,7 @@ impl fmt::Display for BranchCondition {
 }
 
 impl fmt::Display for BitPosition {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -120,7 +120,7 @@ impl InstructionDisplay for ALUType {
 }
 
 impl fmt::Display for IncDecTarget {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             IncDecTarget::R8(r8) => write!(f, "{}", r8),
             IncDecTarget::Word(word) => write!(f, "{}", word),

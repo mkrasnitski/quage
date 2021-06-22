@@ -22,7 +22,7 @@ impl<'de> Deserialize<'de> for Key {
         struct KeyVisitor;
         impl<'de> Visitor<'de> for KeyVisitor {
             type Value = Key;
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(formatter, "a string representing a keycode")
             }
 

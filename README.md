@@ -4,7 +4,7 @@ Written in 100% Rust, using SDL2 for graphics. Targets Linux for lack of Windows
 
 ## Features
 
- - [x] Playing of original DMG games
+ - [x] Playing of original Gameboy (DMG) games
  - [x] Battery saves
  - [x] Decent Accuracy (?)
  - [x] Configurable Hotkeys

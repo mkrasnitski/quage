@@ -300,7 +300,7 @@ impl Cartridge {
         }
     }
 
-    pub fn load_external_ram(&mut self, filename: &Path) {
+    pub fn load_external_ram(&mut self, filename: &Path) -> Result<()> {
         match self.mapper.mapper_type {
             MapperType::MBC1BattRam
             | MapperType::MBC2Batt
@@ -308,14 +308,15 @@ impl Cartridge {
             | MapperType::MBC3RamRTC
             | MapperType::MBC5BattRam => {
                 if let Ok(mut file) = File::open(filename) {
-                    file.read_exact(&mut self.ram).unwrap();
+                    file.read_exact(&mut self.ram)?;
                 }
             }
             _ => {}
-        }
+        };
+        Ok(())
     }
 
-    pub fn save_external_ram(&self, filename: &Path) {
+    pub fn save_external_ram(&self, filename: &Path) -> Result<()> {
         match self.mapper.mapper_type {
             MapperType::MBC1BattRam
             | MapperType::MBC2Batt
@@ -323,13 +324,11 @@ impl Cartridge {
             | MapperType::MBC3RamRTC
             | MapperType::MBC5BattRam => {
                 let dir = filename.parent().unwrap();
-                std::fs::create_dir_all(dir).unwrap();
-                File::create(filename)
-                    .unwrap()
-                    .write_all(&self.ram)
-                    .unwrap();
+                std::fs::create_dir_all(dir)?;
+                File::create(filename)?.write_all(&self.ram)?;
             }
             _ => {}
-        }
+        };
+        Ok(())
     }
 }
