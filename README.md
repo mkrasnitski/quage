@@ -1,6 +1,6 @@
 # quage - The Questionably Accurate Gameboy Emulator
 
-Written in 100% Rust, using SDL2 for graphics. Targets Linux for lack of Windows machines to test on.
+Written in 100% Rust, using SDL2 for graphics.
 
 ## Features
 
@@ -8,6 +8,7 @@ Written in 100% Rust, using SDL2 for graphics. Targets Linux for lack of Windows
  - [x] Battery saves
  - [x] Decent Accuracy (?)
  - [x] Configurable Hotkeys
+ - [x] Cross-platform Support
  - [ ] Audio
  - [ ] Savestates
  - [ ] Gameboy Color (CGB) support
