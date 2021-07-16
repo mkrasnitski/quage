@@ -174,6 +174,8 @@ impl CPU {
                     // An ISR takes 5 m-cycles to service, like on Z80
                     // 2 NOPs, then 2 cycles pushing PC onto the stack,
                     // then 1 more cycle to change PC
+
+                    // NOTE: THESE TWO EXTRA NOPS CAUSE REGRESSIONS ALL OVER THE PLACE
                     self.tick_mclock();
                     self.tick_mclock();
                     // ISR is cancelled for this specific interrupt if IE is written to

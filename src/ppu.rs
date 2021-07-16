@@ -41,7 +41,7 @@ impl PPURegisters {
     }
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone)]
 struct Pixel {
     color: u8,
     palette: u8,
@@ -87,21 +87,21 @@ impl Sprite {
 }
 
 #[derive(Copy, Clone, Debug)]
-enum FetcherState {
-    GetTileNum,
-    GetLoByte,
-    GetHiByte,
+enum Fetch {
+    TileNum,
+    LowByte,
+    HighByte,
 }
 
-impl Default for FetcherState {
+impl Default for Fetch {
     fn default() -> Self {
-        Self::GetTileNum
+        Fetch::TileNum
     }
 }
 
 #[derive(Default)]
 struct Fetcher {
-    state: FetcherState,
+    state: Fetch,
     cycles: u32,
     tile_num: u8,
     row_num: u8,
@@ -112,11 +112,11 @@ struct Fetcher {
 }
 
 impl Fetcher {
-    pub fn step_state(&mut self) -> Option<FetcherState> {
+    pub fn step_state(&mut self) -> Option<Fetch> {
         let new_state = match self.cycles {
-            0 => Some(FetcherState::GetTileNum),
-            2 => Some(FetcherState::GetLoByte),
-            4 => Some(FetcherState::GetHiByte),
+            0 => Some(Fetch::TileNum),
+            2 => Some(Fetch::LowByte),
+            4 => Some(Fetch::HighByte),
             _ => None,
         };
         self.cycles += 1;
@@ -134,6 +134,14 @@ impl Fetcher {
     pub fn reset(&mut self) {
         self.cycles = 0;
         self.push = false;
+    }
+
+    pub fn decode_tile_row(&self) -> [u8; 8] {
+        let mut row = [0; 8];
+        for i in 0..8 {
+            row[7 - i] = (((self.tile_hi >> i) & 1) << 1) | ((self.tile_lo >> i) & 1);
+        }
+        row
     }
 }
 
@@ -154,6 +162,14 @@ impl FIFO {
 
     pub fn clear(&mut self) {
         *self = FIFO::new();
+    }
+
+    pub fn pop(&mut self) -> Option<Pixel> {
+        self.queue.pop_front()
+    }
+
+    pub fn push(&mut self, pixel: Pixel) {
+        self.queue.push_back(pixel);
     }
 }
 
@@ -177,8 +193,8 @@ pub struct PPU {
     dots: u64,
     cycles: u64,
 
-    num_pixels: u8,
-    num_tiles: u8,
+    num_pixels_drawn: u8,
+    num_tiles_fetched: u8,
 
     enable_display_events: bool,
     stat_condition: bool,
@@ -213,8 +229,8 @@ impl PPU {
             sprite_fifo: FIFO::new(),
             current_sprite: None,
 
-            num_pixels: 0,
-            num_tiles: 0,
+            num_pixels_drawn: 0,
+            num_tiles_fetched: 0,
 
             mode: 0,
             dots: 0,
@@ -438,8 +454,8 @@ impl PPU {
     fn clear_fifos(&mut self) {
         self.bg_fifo.clear();
         self.sprite_fifo.clear();
-        self.num_pixels = 0;
-        self.num_tiles = 0;
+        self.num_pixels_drawn = 0;
+        self.num_tiles_fetched = 0;
     }
 
     fn oam_scan(&mut self) {
@@ -465,7 +481,7 @@ impl PPU {
             if is_bit_set(self.registers.LCDC, 1) {
                 for i in 0..self.oam_sprites.len() {
                     let sprite = self.oam_sprites[i];
-                    if sprite.x <= self.num_pixels + 8 && self.current_sprite.is_none() {
+                    if sprite.x <= self.num_pixels_drawn + 8 && self.current_sprite.is_none() {
                         self.current_sprite = Some(sprite);
                         self.sprite_fifo.fetcher.reset();
                         self.oam_sprites.remove(i);
@@ -479,42 +495,31 @@ impl PPU {
                 // Throw away pixels that would normally be off screen
                 // This includes the first SCX % 8 pixels of the background,
                 // and the first pixels of the window if WX < 7
-                let num_to_throw = match self.drawing_window {
+                let left_edge = match self.drawing_window {
                     true => match self.registers.WX {
                         0..=6 => 7 - self.registers.WX,
                         _ => 0,
                     },
                     false => self.registers.SCX % 8,
                 };
-                if self.num_pixels == 0 && self.bg_fifo.thrown_away < num_to_throw {
-                    if self.bg_fifo.queue.pop_front().is_some() {
+                if self.bg_fifo.thrown_away < left_edge {
+                    if self.bg_fifo.pop().is_some() {
                         self.bg_fifo.thrown_away += 1;
                     }
                     self.step_bg_fetcher();
-                } else if self.num_pixels < 160 {
+                } else if self.num_pixels_drawn < 160 {
                     // Pop pixels until we have 160 on the line, then mode 3 is done
                     if is_bit_set(self.registers.LCDC, 7) {
                         if is_bit_set(self.registers.LCDC, 0) {
-                            if let Some(bg_pixel) = self.bg_fifo.queue.pop_front() {
-                                let pixel = match self.sprite_fifo.queue.pop_front() {
-                                    Some(sprite_pixel) => {
-                                        match (sprite_pixel.priority && bg_pixel.color != 0)
-                                            || sprite_pixel.color == 0
-                                        {
-                                            true => bg_pixel,
-                                            false => sprite_pixel,
-                                        }
-                                    }
-                                    None => bg_pixel,
-                                };
-                                let x = self.num_pixels as usize;
+                            if let Some(pixel) = self.pop_mix_fifos() {
+                                let x = self.num_pixels_drawn as usize;
                                 let y = self.registers.LY as usize;
                                 self.viewport[y][x] = pixel.decode();
-                                self.num_pixels += 1;
+                                self.num_pixels_drawn += 1;
                             }
                         }
                         // Check if we're inside the window, and reset the FIFO if we are
-                        let window_x = self.num_pixels + 7;
+                        let window_x = self.num_pixels_drawn + 7;
                         if is_bit_set(self.registers.LCDC, 5)
                             && (self.registers.WX..167).contains(&window_x)
                             && self.wy_ly_latch
@@ -537,11 +542,24 @@ impl PPU {
         }
     }
 
+    fn pop_mix_fifos(&mut self) -> Option<Pixel> {
+        let bg_pixel = self.bg_fifo.pop()?;
+        match self.sprite_fifo.pop() {
+            Some(sprite_pixel) => {
+                match (sprite_pixel.priority && bg_pixel.color != 0) || sprite_pixel.color == 0 {
+                    true => Some(bg_pixel),
+                    false => Some(sprite_pixel),
+                }
+            }
+            None => Some(bg_pixel),
+        }
+    }
+
     fn step_bg_fetcher(&mut self) {
         let fifo_state = self.bg_fifo.fetcher.step_state();
         if let Some(state) = fifo_state {
             match state {
-                FetcherState::GetTileNum => {
+                Fetch::TileNum => {
                     // BG and Window use different tilemap flip-bits
                     let tilemap_bit = match self.drawing_window {
                         true => 6,
@@ -554,14 +572,14 @@ impl PPU {
                     // Figure out what tile we're drawing
                     let (x, y) = match self.drawing_window {
                         true => (
-                            (8 * self.num_tiles)
+                            (8 * self.num_tiles_fetched)
                                 .wrapping_sub(self.registers.SCX % 8)
                                 .wrapping_sub(self.registers.WX)
                                 .wrapping_add(7),
                             self.registers.WC,
                         ),
                         false => (
-                            (8 * self.num_tiles).wrapping_add(self.registers.SCX),
+                            (8 * self.num_tiles_fetched).wrapping_add(self.registers.SCX),
                             self.registers.LY.wrapping_add(self.registers.SCY),
                         ),
                     };
@@ -570,8 +588,8 @@ impl PPU {
                     self.bg_fifo.fetcher.tile_num = self.read_byte_direct(tile_addr);
                     self.bg_fifo.fetcher.row_num = y % 8;
                 }
-                FetcherState::GetLoByte => {
-                    // Fetch the actual graphics data
+                // Fetch the actual graphics data
+                Fetch::LowByte => {
                     let tile_num = self.bg_fifo.fetcher.tile_num;
                     let row_num = self.bg_fifo.fetcher.row_num;
                     self.bg_fifo.fetcher.tile_addr =
@@ -583,7 +601,7 @@ impl PPU {
                     self.bg_fifo.fetcher.tile_lo =
                         self.read_byte_direct(self.bg_fifo.fetcher.tile_addr);
                 }
-                FetcherState::GetHiByte => {
+                Fetch::HighByte => {
                     self.bg_fifo.fetcher.tile_hi =
                         self.read_byte_direct(self.bg_fifo.fetcher.tile_addr + 1);
                 }
@@ -591,16 +609,14 @@ impl PPU {
         }
         // If the FIFO is empty, decode the row of 8 pixels and push them onto it
         if self.bg_fifo.fetcher.push && self.bg_fifo.queue.is_empty() {
-            let bg_tile_row =
-                self.decode_tile_bytes(self.bg_fifo.fetcher.tile_hi, self.bg_fifo.fetcher.tile_lo);
-            for &color in bg_tile_row.iter() {
-                self.bg_fifo.queue.push_back(Pixel {
+            for (i, &color) in self.bg_fifo.fetcher.decode_tile_row().iter().enumerate() {
+                self.bg_fifo.push(Pixel {
                     color,
                     palette: self.registers.BGP,
                     priority: false,
                 })
             }
-            self.num_tiles += 1;
+            self.num_tiles_fetched += 1;
             self.bg_fifo.fetcher.reset();
         }
     }
@@ -608,7 +624,7 @@ impl PPU {
     fn step_sprite_fetcher(&mut self) {
         if let Some(state) = self.sprite_fifo.fetcher.step_state() {
             match state {
-                FetcherState::GetTileNum => {
+                Fetch::TileNum => {
                     let sprite = self.current_sprite.unwrap();
                     let sprite_height = match is_bit_set(self.registers.LCDC, 2) {
                         true => 2,
@@ -622,14 +638,14 @@ impl PPU {
                         false => row_num,
                     }
                 }
-                FetcherState::GetLoByte => {
+                Fetch::LowByte => {
                     self.sprite_fifo.fetcher.tile_addr = 0x8000
                         + 16 * self.sprite_fifo.fetcher.tile_num as u16
                         + 2 * self.sprite_fifo.fetcher.row_num as u16;
                     self.sprite_fifo.fetcher.tile_lo =
                         self.read_byte_direct(self.sprite_fifo.fetcher.tile_addr);
                 }
-                FetcherState::GetHiByte => {
+                Fetch::HighByte => {
                     self.sprite_fifo.fetcher.tile_hi =
                         self.read_byte_direct(self.sprite_fifo.fetcher.tile_addr + 1);
                 }
@@ -637,35 +653,32 @@ impl PPU {
         }
         if self.sprite_fifo.fetcher.push {
             let sprite = self.current_sprite.unwrap();
-            let sprite_tile_row = self.decode_tile_bytes(
-                self.sprite_fifo.fetcher.tile_hi,
-                self.sprite_fifo.fetcher.tile_lo,
-            );
+            let sprite_tile_row = self.sprite_fifo.fetcher.decode_tile_row();
             let tile_row_iter: Box<dyn Iterator<Item = _>> = match sprite.x_flip {
                 true => Box::new(sprite_tile_row.iter().rev()),
                 false => Box::new(sprite_tile_row.iter()),
             };
+            let palette = match sprite.palette {
+                true => self.registers.OBP1,
+                false => self.registers.OBP0,
+            };
             for (i, &color) in tile_row_iter.enumerate() {
                 let pixel = Pixel {
                     color,
-                    palette: if sprite.palette {
-                        self.registers.OBP1
-                    } else {
-                        self.registers.OBP0
-                    },
+                    palette,
                     priority: sprite.priority,
                 };
                 let throw_away = if sprite.x < 8 { 8 - sprite.x } else { 0 };
                 if i < throw_away as usize {
                     continue;
                 }
-                let idx = i - throw_away as usize;
-                if idx < self.sprite_fifo.queue.len() {
-                    if self.sprite_fifo.queue[idx].color == 0 {
-                        self.sprite_fifo.queue[idx] = pixel;
+                let i = i - throw_away as usize;
+                if i < self.sprite_fifo.queue.len() {
+                    if self.sprite_fifo.queue[i].color == 0 {
+                        self.sprite_fifo.queue[i] = pixel;
                     }
                 } else {
-                    self.sprite_fifo.queue.push_back(pixel)
+                    self.sprite_fifo.push(pixel)
                 }
             }
             self.current_sprite = None;
@@ -677,31 +690,23 @@ impl PPU {
         let mut bg = [[Color::WHITE; 128]; 192];
         for i in 0..384 {
             let tile_addr = 0x8000 + i * 16;
-            let tile_y = i / 16;
-            let tile_x = i % 16;
+            let tile_y = i as usize / 16;
+            let tile_x = i as usize % 16;
             for j in 0..8 {
-                let hi = self.read_byte_direct(tile_addr + 2 * j + 1);
-                let lo = self.read_byte_direct(tile_addr + 2 * j);
+                let hi = self.read_byte_direct(tile_addr + 2 * j as u16 + 1);
+                let lo = self.read_byte_direct(tile_addr + 2 * j as u16);
                 for k in 0..8 {
+                    let x = 8 * tile_x + 7 - k;
+                    let y = 8 * tile_y + j;
                     let pixel = Pixel {
                         color: (((hi >> k) & 1) << 1) | ((lo >> k) & 1),
                         palette: self.registers.BGP,
                         priority: false,
                     };
-                    let x = (8 * tile_x + 7 - k) as usize;
-                    let y = (8 * tile_y + j) as usize;
                     bg[y][x] = pixel.decode();
                 }
             }
         }
         bg
-    }
-
-    fn decode_tile_bytes(&self, hi: u8, lo: u8) -> [u8; 8] {
-        let mut row = [0; 8];
-        for i in 0..8 {
-            row[7 - i] = (((hi >> i) & 1) << 1) | ((lo >> i) & 1);
-        }
-        row
     }
 }
