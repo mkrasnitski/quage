@@ -103,6 +103,7 @@ impl Default for Fetch {
 struct Fetcher {
     state: Fetch,
     cycles: u32,
+    total_cycles: u32,
     tile_num: u8,
     row_num: u8,
     tile_addr: u16,
@@ -119,6 +120,7 @@ impl Fetcher {
             4 => Some(Fetch::HighByte),
             _ => None,
         };
+        self.total_cycles += 1;
         self.cycles += 1;
         if self.cycles >= 6 && !self.push {
             self.push = true;
@@ -196,6 +198,7 @@ pub struct PPU {
     num_pixels_drawn: u8,
     num_tiles_fetched: u8,
 
+    bg_fifo_startup: bool,
     enable_display_events: bool,
     stat_condition: bool,
     ly_coincidence: bool,
@@ -236,6 +239,7 @@ impl PPU {
             dots: 0,
             cycles: 0,
 
+            bg_fifo_startup: false,
             enable_display_events: false,
             stat_condition: false,
             ly_coincidence: false,
@@ -456,6 +460,7 @@ impl PPU {
         self.sprite_fifo.clear();
         self.num_pixels_drawn = 0;
         self.num_tiles_fetched = 0;
+        self.bg_fifo_startup = false;
     }
 
     fn oam_scan(&mut self) {
@@ -484,6 +489,7 @@ impl PPU {
                     if sprite.x <= self.num_pixels_drawn + 8 && self.current_sprite.is_none() {
                         self.current_sprite = Some(sprite);
                         self.sprite_fifo.fetcher.reset();
+                        self.bg_fifo.fetcher.reset();
                         self.oam_sprites.remove(i);
                         break;
                     }
@@ -609,14 +615,18 @@ impl PPU {
         }
         // If the FIFO is empty, decode the row of 8 pixels and push them onto it
         if self.bg_fifo.fetcher.push && self.bg_fifo.queue.is_empty() {
-            for (i, &color) in self.bg_fifo.fetcher.decode_tile_row().iter().enumerate() {
-                self.bg_fifo.push(Pixel {
-                    color,
-                    palette: self.registers.BGP,
-                    priority: false,
-                })
+            if self.bg_fifo_startup {
+                for color in self.bg_fifo.fetcher.decode_tile_row() {
+                    self.bg_fifo.push(Pixel {
+                        color,
+                        palette: self.registers.BGP,
+                        priority: false,
+                    })
+                }
+                self.num_tiles_fetched += 1;
+            } else {
+                self.bg_fifo_startup = true;
             }
-            self.num_tiles_fetched += 1;
             self.bg_fifo.fetcher.reset();
         }
     }
