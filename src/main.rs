@@ -13,6 +13,7 @@ mod ppu;
 mod rtc;
 mod sound;
 mod timers;
+mod utils;
 use anyhow::Result;
 use structopt::StructOpt;
 

@@ -5,6 +5,7 @@ use crate::bus::MemoryBus;
 use crate::config::Config;
 use crate::flags::*;
 use crate::instruction::*;
+use crate::utils::*;
 
 #[derive(Default)]
 struct Registers {
@@ -55,7 +56,7 @@ impl std::fmt::Debug for CPU {
 impl CPU {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, config: &Config) -> Result<Self> {
         let mut cpu = CPU {
-            bus: MemoryBus::new(bootrom, cartridge, &config)?,
+            bus: MemoryBus::new(bootrom, cartridge, config)?,
             registers: Registers::default(),
             pc: 0,
             sp: 0,
@@ -165,10 +166,8 @@ impl CPU {
     fn check_interrupts(&mut self) {
         self.bus.check_interrupts();
         let mut intr_cancelled = false;
-        let mut intr_taken = false;
         for i in 0..5 {
-            let mask = 1u8 << i;
-            if self.bus.IE & self.bus.IF & mask != 0 {
+            if (self.bus.IE & self.bus.IF).bit(i) {
                 self.registers.halted = false;
                 if self.registers.ime {
                     // An ISR takes 5 m-cycles to service, like on Z80
@@ -179,24 +178,23 @@ impl CPU {
                     self.tick_mclock();
                     self.tick_mclock();
                     // ISR is cancelled for this specific interrupt if IE is written to
-                    // during the high byte push and the right bit is no longer set.
+                    // during the high byte push and the corresponding bit is no longer set.
                     self.push((self.pc >> 8) as u8);
-                    if self.bus.IE & self.bus.IF & mask == 0 {
-                        intr_cancelled = true;
-                        continue;
-                    } else {
+                    if (self.bus.IE & self.bus.IF).bit(i) {
                         self.push(self.pc as u8);
                         self.registers.ime = false;
-                        self.bus.IF ^= mask;
-                        self.pc = (i << 3) + 0x40;
+                        self.bus.IF &= !(1 << i);
+                        self.pc = (i << 3) as u16 + 0x40;
                         self.tick_mclock();
-                        intr_taken = true;
+                        intr_cancelled = false;
                         break;
+                    } else {
+                        intr_cancelled = true;
                     }
                 }
             }
         }
-        if intr_cancelled && !intr_taken {
+        if intr_cancelled {
             self.registers.ime = false;
             self.pc = 0x0000;
             self.tick_mclock();
@@ -369,7 +367,7 @@ impl CPU {
             OP::BIT(bit, r8) => {
                 let res = self.read_r8(r8);
                 let bit = bit as u8;
-                self.set_flags((res & (1 << bit)) == 0, false, true, self.registers.f.c);
+                self.set_flags(!res.bit(bit), false, true, self.registers.f.c);
             }
             OP::SWAP(r8) => {
                 let val = self.read_r8(r8).rotate_right(4);
@@ -388,14 +386,14 @@ impl CPU {
                 let c = self.registers.f.c;
                 self.shift_left(r8, |_| c);
             }
-            OP::RLC(r8) => self.shift_left(r8, |val| val & (1 << 7) != 0),
+            OP::RLC(r8) => self.shift_left(r8, |val| val.bit(7)),
             OP::SLA(r8) => self.shift_left(r8, |_| false),
             OP::RR(r8) => {
                 let c = self.registers.f.c;
                 self.shift_right(r8, |_| c);
             }
-            OP::RRC(r8) => self.shift_right(r8, |val| val & 1 != 0),
-            OP::SRA(r8) => self.shift_right(r8, |val| val & (1 << 7) != 0),
+            OP::RRC(r8) => self.shift_right(r8, |val| val.bit(0)),
+            OP::SRA(r8) => self.shift_right(r8, |val| val.bit(7)),
             OP::SRL(r8) => self.shift_right(r8, |_| false),
             OP::RLA => {
                 let c = self.registers.f.c;
@@ -403,7 +401,7 @@ impl CPU {
                 self.registers.f.z = false;
             }
             OP::RLCA => {
-                self.shift_left(R8::A, |val| val & (1 << 7) != 0);
+                self.shift_left(R8::A, |val| val.bit(7));
                 self.registers.f.z = false;
             }
             OP::RRA => {
@@ -412,7 +410,7 @@ impl CPU {
                 self.registers.f.z = false;
             }
             OP::RRCA => {
-                self.shift_right(R8::A, |val| val & 1 != 0);
+                self.shift_right(R8::A, |val| val.bit(0));
                 self.registers.f.z = false;
             }
             OP::DAA => {
@@ -540,23 +538,17 @@ impl CPU {
         self.push(val as u8);
     }
 
-    fn shift_left<B>(&mut self, r8: R8, bit: B)
-    where
-        B: Fn(u8) -> bool,
-    {
+    fn shift_left(&mut self, r8: R8, carry: impl Fn(u8) -> bool) {
         let val = self.read_r8(r8);
-        let res = (val << 1) | (bit(val) as u8);
-        self.set_flags(res == 0, false, false, val & (1 << 7) != 0);
+        let res = (val << 1) | (carry(val) as u8);
+        self.set_flags(res == 0, false, false, val.bit(7));
         self.write_r8(r8, res);
     }
 
-    fn shift_right<B>(&mut self, r8: R8, bit: B)
-    where
-        B: Fn(u8) -> bool,
-    {
+    fn shift_right(&mut self, r8: R8, carry: impl Fn(u8) -> bool) {
         let val = self.read_r8(r8);
-        let res = (val >> 1) | ((bit(val) as u8) << 7);
-        self.set_flags(res == 0, false, false, val & 1 != 0);
+        let res = (val >> 1) | ((carry(val) as u8) << 7);
+        self.set_flags(res == 0, false, false, val.bit(0));
         self.write_r8(r8, res);
     }
 

@@ -11,7 +11,7 @@ use crate::hotkeys::{Hotkey, Keymap};
 
 pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
-const W_SCALE: usize = 3;
+const W_SCALE: u32 = 3;
 const FRAMERATE: f64 = 4194304.0 / 70224.0;
 
 pub enum DisplayEvent {
@@ -81,8 +81,8 @@ impl<const W: usize, const H: usize> Display<W, H> {
     pub fn new(context: &sdl2::Sdl, position: Option<(i32, i32)>, show_fps: bool) -> Result<Self> {
         let mut window = context.video().map_err(Error::msg)?.window(
             "gb-emu",
-            (W * W_SCALE) as u32,
-            (H * W_SCALE) as u32,
+            W_SCALE * W as u32,
+            W_SCALE * H as u32,
         );
         Ok(Display {
             limit_framerate: true,

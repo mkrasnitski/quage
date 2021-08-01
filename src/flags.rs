@@ -1,3 +1,5 @@
+use crate::utils::*;
+
 #[derive(Copy, Clone, Default)]
 pub struct Flags {
     pub z: bool,
@@ -15,10 +17,10 @@ impl From<Flags> for u8 {
 impl From<u8> for Flags {
     fn from(f: u8) -> Self {
         Flags {
-            z: (f & (1 << 7)) != 0,
-            n: (f & (1 << 6)) != 0,
-            h: (f & (1 << 5)) != 0,
-            c: (f & (1 << 4)) != 0,
+            z: f.bit(7),
+            n: f.bit(6),
+            h: f.bit(5),
+            c: f.bit(4),
         }
     }
 }

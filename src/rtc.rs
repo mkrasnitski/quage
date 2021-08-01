@@ -1,3 +1,5 @@
+use crate::utils::*;
+
 #[derive(Default, Debug, Clone)]
 struct RTCState {
     seconds: u8,
@@ -45,8 +47,8 @@ impl RTC {
             0x0C => {
                 self.latched_state.days =
                     (self.latched_state.days & 0xff) | ((val as u16 & 1) << 8);
-                self.halted = val & (1 << 6) != 0;
-                self.carry = val & (1 << 7) != 0;
+                self.halted = val.bit(6);
+                self.carry = val.bit(7);
             }
             _ => panic!("Invalid RTC write: {}", reg),
         };

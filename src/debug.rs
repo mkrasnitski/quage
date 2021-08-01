@@ -95,17 +95,17 @@ impl InstructionDisplay for LDType {
     fn to_instr_string(&self, bytes: &[u8]) -> String {
         match self {
             LDType::ByteImm(r8) => format!("{}, {:02x}", r8, bytes[1]),
-            LDType::WordImm(word) => format!("{}, {:04x}", word, word_arg(&bytes)),
+            LDType::WordImm(word) => format!("{}, {:04x}", word, word_arg(bytes)),
             LDType::MoveByte(dest, src) => format!("{}, {}", dest, src),
             LDType::IndFromA(ind) => format!("{}, A", ind),
             LDType::AFromInd(ind) => format!("A, {}", ind),
             LDType::ByteIndFromA => format!("({:04X}), A", 0xFF00 + bytes[1] as u16),
             LDType::AFromByteInd => format!("A, ({:04X})", 0xFF00 + bytes[1] as u16),
-            LDType::AFromAddr => format!("A, ({:04X})", word_arg(&bytes)),
-            LDType::AddrFromA => format!("({:04X}), A", word_arg(&bytes)),
+            LDType::AFromAddr => format!("A, ({:04X})", word_arg(bytes)),
+            LDType::AddrFromA => format!("({:04X}), A", word_arg(bytes)),
             LDType::SPFromHL => "SP, HL".to_string(),
             LDType::HLFromSPi8 => format!("HL, SP + {:02x}", bytes[1]),
-            LDType::AddrFromSP => format!("({:04X}), SP", word_arg(&bytes)),
+            LDType::AddrFromSP => format!("({:04X}), SP", word_arg(bytes)),
         }
     }
 }
@@ -148,17 +148,17 @@ impl InstructionDisplay for OP {
             | OP::JPHL
             | OP::RETI => format!("{:?}", self),
 
-            OP::LD(ld_type) => format!("LD {}", ld_type.to_instr_string(&bytes)),
+            OP::LD(ld_type) => format!("LD {}", ld_type.to_instr_string(bytes)),
 
-            OP::AND(alu_type) => format!("AND A, {}", alu_type.to_instr_string(&bytes)),
-            OP::OR(alu_type) => format!("OR A, {}", alu_type.to_instr_string(&bytes)),
-            OP::XOR(alu_type) => format!("XOR A, {}", alu_type.to_instr_string(&bytes)),
-            OP::ADD(alu_type) => format!("ADD A, {}", alu_type.to_instr_string(&bytes)),
-            OP::ADC(alu_type) => format!("ADC A, {}", alu_type.to_instr_string(&bytes)),
+            OP::AND(alu_type) => format!("AND A, {}", alu_type.to_instr_string(bytes)),
+            OP::OR(alu_type) => format!("OR A, {}", alu_type.to_instr_string(bytes)),
+            OP::XOR(alu_type) => format!("XOR A, {}", alu_type.to_instr_string(bytes)),
+            OP::ADD(alu_type) => format!("ADD A, {}", alu_type.to_instr_string(bytes)),
+            OP::ADC(alu_type) => format!("ADC A, {}", alu_type.to_instr_string(bytes)),
             OP::ADDHL(word) => format!("ADD HL, {}", word),
-            OP::SUB(alu_type) => format!("SUB A, {}", alu_type.to_instr_string(&bytes)),
-            OP::SBC(alu_type) => format!("SBC A, {}", alu_type.to_instr_string(&bytes)),
-            OP::CP(alu_type) => format!("CP A, {}", alu_type.to_instr_string(&bytes)),
+            OP::SUB(alu_type) => format!("SUB A, {}", alu_type.to_instr_string(bytes)),
+            OP::SBC(alu_type) => format!("SBC A, {}", alu_type.to_instr_string(bytes)),
+            OP::CP(alu_type) => format!("CP A, {}", alu_type.to_instr_string(bytes)),
 
             OP::INC(inc_dec) => format!("INC {}", inc_dec),
             OP::DEC(inc_dec) => format!("DEC {}", inc_dec),
@@ -181,8 +181,8 @@ impl InstructionDisplay for OP {
 
             OP::RST(v) => format!("RST {:#02x}", v),
             OP::JR(condition) => format!("JR{} {:02x}", condition, bytes[1]),
-            OP::JP(condition) => format!("JR{} {:04X}", condition, word_arg(&bytes)),
-            OP::CALL(condition) => format!("CALL{} {:04X}", condition, word_arg(&bytes)),
+            OP::JP(condition) => format!("JR{} {:04X}", condition, word_arg(bytes)),
+            OP::CALL(condition) => format!("CALL{} {:04X}", condition, word_arg(bytes)),
             OP::RET(condition) => {
                 let mut c_str = condition.to_string();
                 c_str.pop();

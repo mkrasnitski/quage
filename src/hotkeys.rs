@@ -30,7 +30,7 @@ impl<'de> Deserialize<'de> for Key {
             where
                 E: de::Error,
             {
-                Ok(Key(Keycode::from_name(&s)
+                Ok(Key(Keycode::from_name(s)
                     .ok_or(format!("invalid hotkey value \"{}\"", s))
                     .map_err(de::Error::custom)?))
             }

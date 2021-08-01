@@ -1,4 +1,5 @@
 use crate::hotkeys::Hotkey;
+use crate::utils::*;
 
 #[derive(Default)]
 pub struct Joypad {
@@ -82,7 +83,7 @@ impl Joypad {
     }
 
     pub fn write(&mut self, val: u8) {
-        self.buttons = val & (1 << 5) == 0;
-        self.direction = val & (1 << 4) == 0;
+        self.buttons = !val.bit(5);
+        self.direction = !val.bit(4);
     }
 }

@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+use crate::utils::*;
 
 #[derive(Default)]
 pub struct Timers {
@@ -55,8 +56,7 @@ impl Timers {
             3 => 7,
             _ => unreachable!(),
         };
-        let bit = self.DIV & (1 << bit_position) != 0;
-        let new_and_result = bit && (self.TAC & 0b100 != 0);
+        let new_and_result = self.DIV.bit(bit_position) && self.TAC.bit(2);
 
         if self.queue_overflow {
             self.queue_overflow = false;
