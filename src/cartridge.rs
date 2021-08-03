@@ -25,23 +25,23 @@ pub enum MapperType {
 
 impl MapperType {
     fn from_u8(mapper: u8) -> Result<Self> {
-        match mapper {
-            0x00 => Ok(MapperType::ROM),
-            0x01 => Ok(MapperType::MBC1),
-            0x02 => Ok(MapperType::MBC1Ram),
-            0x03 => Ok(MapperType::MBC1BattRam),
-            0x05 => Ok(MapperType::MBC2),
-            0x06 => Ok(MapperType::MBC2Batt),
-            0x0F => Ok(MapperType::MBC3RTC),
-            0x10 => Ok(MapperType::MBC3RamRTC),
-            0x11 => Ok(MapperType::MBC3),
-            0x12 => Ok(MapperType::MBC3Ram),
-            0x13 => Ok(MapperType::MBC3BattRam),
-            0x19 => Ok(MapperType::MBC5),
-            0x1A => Ok(MapperType::MBC5Ram),
-            0x1B => Ok(MapperType::MBC5BattRam),
+        Ok(match mapper {
+            0x00 => MapperType::ROM,
+            0x01 => MapperType::MBC1,
+            0x02 => MapperType::MBC1Ram,
+            0x03 => MapperType::MBC1BattRam,
+            0x05 => MapperType::MBC2,
+            0x06 => MapperType::MBC2Batt,
+            0x0F => MapperType::MBC3RTC,
+            0x10 => MapperType::MBC3RamRTC,
+            0x11 => MapperType::MBC3,
+            0x12 => MapperType::MBC3Ram,
+            0x13 => MapperType::MBC3BattRam,
+            0x19 => MapperType::MBC5,
+            0x1A => MapperType::MBC5Ram,
+            0x1B => MapperType::MBC5BattRam,
             _ => bail!("Invalid Mapper: {:#02x}", mapper),
-        }
+        })
     }
 }
 
@@ -57,7 +57,6 @@ pub struct Mapper {
 
     rtc: RTC,
     rtc_enabled: bool,
-    rtc_register: u8,
     prepare_rtc_latch: bool,
 }
 
@@ -114,11 +113,7 @@ impl Mapper {
             | MapperType::MBC30 => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = (val & 0xf) == 0xA,
                 0x2000..=0x3FFF => {
-                    self.high_bank = if val as u16 % self.num_rom_banks == 0 {
-                        1
-                    } else {
-                        val as u16
-                    };
+                    self.high_bank = if val == 0 { 1 } else { val as u16 };
                 }
                 0x4000..=0x5FFF => {
                     // MBC3 only uses 32KB of SRAM at most, but MBC30 can use up to 64KB
@@ -129,8 +124,8 @@ impl Mapper {
                     if val < max_ram_banks {
                         self.ram_bank = val;
                         self.rtc_enabled = false;
-                    } else if val >= max_ram_banks && val <= 0x0C {
-                        self.rtc_register = val;
+                    } else if val >= 0x08 && val <= 0x0C {
+                        self.ram_bank = val;
                         self.rtc_enabled = true;
                     } else {
                         panic!("Invalid ram bank {:02x}", val);
@@ -245,7 +240,6 @@ impl Cartridge {
                 rtc: RTC::default(),
                 ram_enabled: false,
                 rtc_enabled: false,
-                rtc_register: 0,
                 prepare_rtc_latch: false,
             },
         })
@@ -263,7 +257,7 @@ impl Cartridge {
         let addr = addr as usize - 0xA000;
         if self.mapper.ram_enabled {
             if self.mapper.rtc_enabled {
-                self.mapper.rtc.read_byte(self.mapper.rtc_register)
+                self.mapper.rtc.read_byte(self.mapper.ram_bank)
             } else if let MapperType::MBC2 | MapperType::MBC2Batt = self.mapper.mapper_type {
                 self.ram[addr % 0x200]
             } else if addr < self.mapper.ram_size as usize {
@@ -280,7 +274,7 @@ impl Cartridge {
         let addr = addr as usize - 0xA000;
         if self.mapper.ram_enabled {
             if self.mapper.rtc_enabled {
-                self.mapper.rtc.write_byte(self.mapper.rtc_register, val);
+                self.mapper.rtc.write_byte(self.mapper.ram_bank, val);
             } else if let MapperType::MBC2 | MapperType::MBC2Batt = self.mapper.mapper_type {
                 self.ram[addr % 0x200] = val | 0xf0;
             } else if addr < self.mapper.ram_size as usize {
