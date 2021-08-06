@@ -56,7 +56,7 @@ impl std::fmt::Debug for CPU {
 impl CPU {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, config: &Config) -> Result<Self> {
         let mut cpu = CPU {
-            bus: MemoryBus::new(bootrom, cartridge, config)?,
+            bus: MemoryBus::new(bootrom, cartridge)?,
             registers: Registers::default(),
             pc: 0,
             sp: 0,

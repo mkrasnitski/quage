@@ -2,9 +2,6 @@
 use anyhow::Result;
 
 use crate::cartridge::Cartridge;
-use crate::config::Config;
-use crate::display::DisplayEvent;
-use crate::hotkeys::Hotkey;
 use crate::joypad::Joypad;
 use crate::ppu::PPU;
 use crate::sound::Sound;
@@ -36,9 +33,9 @@ pub struct MemoryBus {
 }
 
 impl MemoryBus {
-    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>, config: &Config) -> Result<Self> {
+    pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>) -> Result<Self> {
         Ok(MemoryBus {
-            ppu: PPU::new(config)?,
+            ppu: PPU::new()?,
             timers: Timers::new(),
             joypad: Joypad::new(),
             sound: Sound::new(),
@@ -83,20 +80,6 @@ impl MemoryBus {
                 self.dma.cycles += 1;
             }
         }
-    }
-
-    pub fn poll_display_event(&mut self) -> DisplayEvent {
-        let event = self.ppu.poll_display_event();
-        if let DisplayEvent::KeyEvent((Some(key), pressed)) = event {
-            if let Hotkey::ToggleFrameLimiter = key {
-                if pressed {
-                    self.ppu.toggle_frame_limiter();
-                }
-            } else {
-                self.joypad.update_key(key, pressed);
-            }
-        }
-        event
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {

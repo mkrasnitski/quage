@@ -14,6 +14,36 @@ pub const W_HEIGHT: usize = 144;
 const W_SCALE: u32 = 3;
 const FRAMERATE: f64 = 4194304.0 / 70224.0;
 
+pub struct SDLManager {
+    pub display_manager: DisplayManager,
+    pub display: Display<W_WIDTH, W_HEIGHT>,
+    pub tile_display: Option<Display<128, 192>>,
+}
+
+impl SDLManager {
+    pub fn new(config: &Config) -> Result<Self> {
+        let display_manager = DisplayManager::new(config)?;
+        let display = display_manager.new_display(None, config.show_fps)?;
+        let tile_display = if config.dump_tiles {
+            Some(display_manager.new_display(Some((1220, 250)), false)?)
+        } else {
+            None
+        };
+        Ok(SDLManager {
+            display_manager,
+            display,
+            tile_display,
+        })
+    }
+
+    pub fn toggle_frame_limiter(&mut self) {
+        self.display.toggle_frame_limiter();
+        if let Some(tile_display) = self.tile_display.as_mut() {
+            tile_display.toggle_frame_limiter();
+        }
+    }
+}
+
 pub enum DisplayEvent {
     KeyEvent((Option<Hotkey>, bool)),
     Quit,
