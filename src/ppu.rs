@@ -1,17 +1,19 @@
 #![allow(non_snake_case)]
 use anyhow::Result;
 use sdl2::pixels::Color;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 use crate::display::*;
 use crate::utils::*;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct PPUInterrupts {
     vblank: bool,
     stat: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct PPURegisters {
     LCDC: u8,
     LY: u8,
@@ -55,7 +57,7 @@ impl Pixel {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Serialize, Deserialize)]
 struct Sprite {
     tile_num: u8,
     x: u8,
@@ -80,9 +82,21 @@ impl Sprite {
     }
 }
 
+struct Viewport<const W: usize, const H: usize>;
+
+impl<const W: usize, const H: usize> Viewport<W, H> {
+    fn new() -> Box<[[Color; W]; H]> {
+        Box::new([[Color::WHITE; W]; H])
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct PPU {
+    #[serde(with = "BigArray")]
     pub memory: [u8; 0x2000],
+    #[serde(with = "BigArray")]
     pub oam: [u8; 0xA0],
+    #[serde(skip, default = "Viewport::new")]
     pub viewport: Box<[[Color; W_WIDTH]; W_HEIGHT]>,
     registers: PPURegisters,
     interrupts: PPUInterrupts,
@@ -107,7 +121,7 @@ impl PPU {
             oam: [0; 0xA0],
             registers: PPURegisters::new(),
             interrupts: PPUInterrupts::default(),
-            viewport: Box::new([[Color::WHITE; W_WIDTH]; W_HEIGHT]),
+            viewport: Viewport::new(),
             oam_sprites: Vec::new(),
             oam_index: 0,
 

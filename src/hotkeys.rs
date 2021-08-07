@@ -1,43 +1,17 @@
 use anyhow::Result;
 use maplit::hashmap;
 use sdl2::keyboard::Keycode;
-use serde::de::{self, Deserializer, Visitor};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fmt;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-/// A wrapper type for SDL2's Keycode enum that lets us implement Deserialize for it.
-#[derive(Debug, Eq, PartialEq, Hash)]
-struct Key(Keycode);
+use crate::utils::*;
 
-/// Deserialize a string into an Keycode by parsing the string as a Keycode name.
-impl<'de> Deserialize<'de> for Key {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct KeyVisitor;
-        impl<'de> Visitor<'de> for KeyVisitor {
-            type Value = Key;
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(formatter, "a string representing a keycode")
-            }
-
-            fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
-            where
-                E: de::Error,
-            {
-                Ok(Key(Keycode::from_name(s)
-                    .ok_or(format!("invalid hotkey value \"{}\"", s))
-                    .map_err(de::Error::custom)?))
-            }
-        }
-        deserializer.deserialize_string(KeyVisitor)
-    }
-}
+/// A wrapper type for SDL2's Keycode enum that lets us deserialize it.
+#[derive(Debug, Eq, PartialEq, Hash, Deserialize)]
+struct Key(#[serde(with = "keycode_serde")] Keycode);
 
 #[derive(Deserialize)]
 struct JoypadBindings {

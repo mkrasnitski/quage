@@ -1,7 +1,8 @@
 use crate::hotkeys::Hotkey;
 use crate::utils::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Joypad {
     a: bool,
     b: bool,

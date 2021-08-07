@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use serde_big_array::BigArray;
 
 use crate::cartridge::Cartridge;
 use crate::joypad::Joypad;
@@ -7,7 +9,7 @@ use crate::ppu::PPU;
 use crate::sound::Sound;
 use crate::timers::Timers;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct DMA {
     base: u8,
     next_base: u8,
@@ -17,13 +19,16 @@ struct DMA {
     running: bool,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct MemoryBus {
     pub ppu: PPU,
     pub timers: Timers,
     pub joypad: Joypad,
     pub sound: Sound,
     pub cartridge: Cartridge,
+    #[serde(with = "BigArray")]
     work_ram: [u8; 0x2000],
+    #[serde(with = "BigArray")]
     hram: [u8; 0x7f],
     bootrom: Vec<u8>,
     bootrom_switch: bool,

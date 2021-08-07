@@ -1,6 +1,7 @@
 use crate::utils::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct RTCState {
     seconds: u8,
     minutes: u8,
@@ -8,7 +9,7 @@ struct RTCState {
     days: u16,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct RTC {
     carry: bool,
     halted: bool,

@@ -1,7 +1,8 @@
 #![allow(non_snake_case)]
 use crate::utils::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct Timers {
     pub DIV: u16,
     pub TIMA: u8,

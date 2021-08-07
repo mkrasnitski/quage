@@ -1,4 +1,6 @@
-#[derive(Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Default, Serialize, Deserialize)]
 struct SoundRegisters {
     ch1_freq_sweep: u8,
     ch1_length_duty: u8,
@@ -27,6 +29,7 @@ struct SoundRegisters {
     sound_enable: u8,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Sound {
     registers: SoundRegisters,
     wave_ram: [u8; 0x10],

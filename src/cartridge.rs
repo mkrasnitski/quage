@@ -1,10 +1,12 @@
 use anyhow::{bail, Result};
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
 use crate::rtc::RTC;
 
+#[derive(Serialize, Deserialize)]
 pub enum MapperType {
     ROM,
     MBC1,
@@ -45,6 +47,7 @@ impl MapperType {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Mapper {
     mapper_type: MapperType,
     num_rom_banks: u16,
@@ -179,6 +182,7 @@ impl Mapper {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Cartridge {
     contents: Vec<u8>,
     ram: Vec<u8>,

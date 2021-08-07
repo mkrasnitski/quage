@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use crate::bus::MemoryBus;
 use crate::config::Config;
@@ -7,7 +8,7 @@ use crate::flags::*;
 use crate::instruction::*;
 use crate::utils::*;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct Registers {
     a: u8,
     b: u8,
@@ -34,6 +35,7 @@ impl std::fmt::Debug for Registers {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct CPU {
     pub bus: MemoryBus,
     registers: Registers,

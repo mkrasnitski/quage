@@ -1,6 +1,7 @@
 use crate::utils::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize)]
 pub struct Flags {
     pub z: bool,
     pub n: bool,
