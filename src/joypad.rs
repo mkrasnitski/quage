@@ -1,4 +1,4 @@
-use crate::hotkeys::Hotkey;
+use crate::hotkeys::JoypadKey;
 use crate::utils::*;
 use serde::{Deserialize, Serialize};
 
@@ -41,27 +41,25 @@ impl Joypad {
         }
     }
 
-    pub fn update_key(&mut self, key: Hotkey, pressed: bool) {
+    pub fn update_key(&mut self, key: JoypadKey, pressed: bool) {
         match key {
-            Hotkey::Up => self.up = pressed,
-            Hotkey::Down => self.down = pressed,
-            Hotkey::Left => self.left = pressed,
-            Hotkey::Right => self.right = pressed,
-            Hotkey::A => self.a = pressed,
-            Hotkey::B => self.b = pressed,
-            Hotkey::Start => self.start = pressed,
-            Hotkey::Select => self.select = pressed,
-            _ => {}
+            JoypadKey::Up => self.up = pressed,
+            JoypadKey::Down => self.down = pressed,
+            JoypadKey::Left => self.left = pressed,
+            JoypadKey::Right => self.right = pressed,
+            JoypadKey::A => self.a = pressed,
+            JoypadKey::B => self.b = pressed,
+            JoypadKey::Start => self.start = pressed,
+            JoypadKey::Select => self.select = pressed,
         }
 
         match key {
-            Hotkey::Up | Hotkey::Down | Hotkey::Left | Hotkey::Right => {
+            JoypadKey::Up | JoypadKey::Down | JoypadKey::Left | JoypadKey::Right => {
                 self.request_direction_interrupt = pressed
             }
-            Hotkey::A | Hotkey::B | Hotkey::Start | Hotkey::Select => {
+            JoypadKey::A | JoypadKey::B | JoypadKey::Start | JoypadKey::Select => {
                 self.request_buttons_interrupt = pressed
             }
-            _ => {}
         }
     }
 

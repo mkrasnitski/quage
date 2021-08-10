@@ -23,12 +23,11 @@ pub struct SDLManager {
 impl SDLManager {
     pub fn new(config: &Config) -> Result<Self> {
         let display_manager = DisplayManager::new(config)?;
-        let display = display_manager.new_display(None, config.show_fps)?;
-        let tile_display = if config.dump_tiles {
-            Some(display_manager.new_display(Some((1220, 250)), false)?)
-        } else {
-            None
-        };
+        let display = display_manager.display(None, config.show_fps)?;
+        let tile_display = config
+            .dump_tiles
+            .then(|| display_manager.display(Some((1220, 250)), false))
+            .transpose()?;
         Ok(SDLManager {
             display_manager,
             display,
@@ -45,7 +44,7 @@ impl SDLManager {
 }
 
 pub enum DisplayEvent {
-    KeyEvent((Option<Hotkey>, bool)),
+    HotkeyEvent((Hotkey, bool)),
     Quit,
     None,
 }
@@ -67,7 +66,7 @@ impl DisplayManager {
         })
     }
 
-    pub fn new_display<const W: usize, const H: usize>(
+    pub fn display<const W: usize, const H: usize>(
         &self,
         position: Option<(i32, i32)>,
         show_fps: bool,
@@ -85,14 +84,24 @@ impl DisplayManager {
                 } => return DisplayEvent::Quit,
                 Event::KeyDown {
                     keycode: Some(k),
+                    keymod: mods,
                     repeat: false,
                     ..
-                } => return DisplayEvent::KeyEvent((self.hotkey_map.get_hotkey(k), true)),
+                } => {
+                    if let Some(hotkey) = self.hotkey_map.get_hotkey(k, mods) {
+                        return DisplayEvent::HotkeyEvent((hotkey, true));
+                    }
+                }
                 Event::KeyUp {
                     keycode: Some(k),
+                    keymod: mods,
                     repeat: false,
                     ..
-                } => return DisplayEvent::KeyEvent((self.hotkey_map.get_hotkey(k), false)),
+                } => {
+                    if let Some(hotkey) = self.hotkey_map.get_hotkey(k, mods) {
+                        return DisplayEvent::HotkeyEvent((hotkey, false));
+                    }
+                }
                 _ => continue,
             }
         }

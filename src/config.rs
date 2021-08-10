@@ -13,6 +13,9 @@ pub struct Config {
     #[structopt(long, default_value = "./saves")]
     pub saves_dir: PathBuf,
 
+    #[structopt(long, default_value = "./savestates")]
+    pub savestates_dir: PathBuf,
+
     #[structopt(long, default_value = "./hotkeys.toml")]
     pub hotkey_file: PathBuf,
 

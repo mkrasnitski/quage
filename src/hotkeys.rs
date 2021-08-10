@@ -1,6 +1,6 @@
 use anyhow::Result;
 use maplit::hashmap;
-use sdl2::keyboard::Keycode;
+use sdl2::keyboard::{Keycode, Mod};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs::File;
@@ -31,36 +31,53 @@ struct EmuBindings {
 }
 
 #[derive(Deserialize)]
+struct SavestateBindings {
+    load_state: Key,
+    save_state: Key,
+}
+
+#[derive(Deserialize, Default)]
 /// The struct that `hotkeys.toml` gets deserialized into.
 struct Keybinds {
     joypad: JoypadBindings,
     emu: EmuBindings,
+    savestate: SavestateBindings,
 }
 
-/// By default the D-pad is mapped to the Arrow Keys, A to X, B to Z,
-/// Start to Enter/Return, and Select to Tab.
-impl Default for Keybinds {
+impl Default for JoypadBindings {
     fn default() -> Self {
-        Keybinds {
-            joypad: JoypadBindings {
-                up: Key(Keycode::Up),
-                down: Key(Keycode::Down),
-                left: Key(Keycode::Left),
-                right: Key(Keycode::Right),
-                a: Key(Keycode::X),
-                b: Key(Keycode::Z),
-                start: Key(Keycode::Return),
-                select: Key(Keycode::Tab),
-            },
-            emu: EmuBindings {
-                toggle_frame_limiter: Key(Keycode::Space),
-            },
+        JoypadBindings {
+            up: Key(Keycode::Up),
+            down: Key(Keycode::Down),
+            left: Key(Keycode::Left),
+            right: Key(Keycode::Right),
+            a: Key(Keycode::X),
+            b: Key(Keycode::Z),
+            start: Key(Keycode::Return),
+            select: Key(Keycode::Tab),
+        }
+    }
+}
+
+impl Default for EmuBindings {
+    fn default() -> Self {
+        EmuBindings {
+            toggle_frame_limiter: Key(Keycode::Space),
+        }
+    }
+}
+
+impl Default for SavestateBindings {
+    fn default() -> Self {
+        SavestateBindings {
+            load_state: Key(Keycode::F1),
+            save_state: Key(Keycode::F2),
         }
     }
 }
 
 #[derive(Copy, Clone, Debug)]
-pub enum Hotkey {
+pub enum JoypadKey {
     Up,
     Down,
     Left,
@@ -69,7 +86,14 @@ pub enum Hotkey {
     B,
     Start,
     Select,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum Hotkey {
+    Joypad(JoypadKey),
     ToggleFrameLimiter,
+    LoadState,
+    SaveState,
 }
 
 /// A Hashmap between SDL Keycodes and relevant Hotkeys
@@ -89,20 +113,22 @@ impl Keymap {
             Keybinds::default()
         };
         let map = hashmap! {
-            keys.joypad.up => Hotkey::Up,
-            keys.joypad.down => Hotkey::Down,
-            keys.joypad.left => Hotkey::Left,
-            keys.joypad.right => Hotkey::Right,
-            keys.joypad.a => Hotkey::A,
-            keys.joypad.b => Hotkey::B,
-            keys.joypad.start => Hotkey::Start,
-            keys.joypad.select => Hotkey::Select,
+            keys.joypad.up => Hotkey::Joypad(JoypadKey::Up),
+            keys.joypad.down => Hotkey::Joypad(JoypadKey::Down),
+            keys.joypad.left => Hotkey::Joypad(JoypadKey::Left),
+            keys.joypad.right => Hotkey::Joypad(JoypadKey::Right),
+            keys.joypad.a => Hotkey::Joypad(JoypadKey::A),
+            keys.joypad.b => Hotkey::Joypad(JoypadKey::B),
+            keys.joypad.start => Hotkey::Joypad(JoypadKey::Start),
+            keys.joypad.select => Hotkey::Joypad(JoypadKey::Select),
             keys.emu.toggle_frame_limiter => Hotkey::ToggleFrameLimiter,
+            keys.savestate.load_state => Hotkey::LoadState,
+            keys.savestate.save_state => Hotkey::SaveState,
         };
         Ok(Keymap { map })
     }
 
-    pub fn get_hotkey(&self, key: Keycode) -> Option<Hotkey> {
+    pub fn get_hotkey(&self, key: Keycode, mods: Mod) -> Option<Hotkey> {
         self.map.get(&Key(key)).copied()
     }
 }

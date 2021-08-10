@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
-use std::fs;
+use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use crate::config::Config;
@@ -11,6 +12,7 @@ pub struct GameBoy {
     cpu: CPU,
     sdl_manager: SDLManager,
     save_path: PathBuf,
+    savestates_path: PathBuf,
 }
 
 impl GameBoy {
@@ -20,14 +22,20 @@ impl GameBoy {
         let cartridge = fs::read(&config.cartridge_path)
             .context(format!("Cartridge {:?} not found", &config.cartridge_path))?;
 
+        let cartridge_name = config.cartridge_path.file_stem().unwrap();
+
         let mut save_path = config.saves_dir.clone();
-        save_path.push(config.cartridge_path.file_stem().unwrap());
+        save_path.push(cartridge_name);
         save_path.set_extension("sav");
+
+        let mut savestates_path = config.savestates_dir.clone();
+        savestates_path.push(cartridge_name);
 
         let mut gb = GameBoy {
             cpu: CPU::new(bootrom, cartridge, &config)?,
             sdl_manager: SDLManager::new(&config)?,
             save_path,
+            savestates_path,
         };
         gb.cpu.bus.cartridge.load_external_ram(&gb.save_path)?;
         Ok(gb)
@@ -48,17 +56,24 @@ impl GameBoy {
 
     fn handle_display_events(&mut self) -> Result<bool> {
         match self.sdl_manager.display_manager.poll_event() {
-            DisplayEvent::KeyEvent((key, pressed)) => {
-                if let Some(key) = key {
-                    if let Hotkey::ToggleFrameLimiter = key {
-                        if pressed {
-                            self.sdl_manager.toggle_frame_limiter();
-                        }
-                    } else {
-                        self.cpu.bus.joypad.update_key(key, pressed);
+            DisplayEvent::HotkeyEvent((key, pressed)) => match key {
+                Hotkey::Joypad(key) => self.cpu.bus.joypad.update_key(key, pressed),
+                Hotkey::ToggleFrameLimiter => {
+                    if pressed {
+                        self.sdl_manager.toggle_frame_limiter();
                     }
                 }
-            }
+                Hotkey::LoadState => {
+                    if pressed {
+                        self.load_state()?;
+                    }
+                }
+                Hotkey::SaveState => {
+                    if pressed {
+                        self.save_state()?;
+                    }
+                }
+            },
             DisplayEvent::Quit => {
                 self.cpu.bus.cartridge.save_external_ram(&self.save_path)?;
                 return Ok(true);
@@ -66,5 +81,24 @@ impl GameBoy {
             DisplayEvent::None => {}
         };
         Ok(false)
+    }
+
+    fn load_state(&mut self) -> Result<()> {
+        let mut path = self.savestates_path.clone();
+        path.push("1.state");
+        if let Ok(mut file) = File::open(path) {
+            let mut data = Vec::new();
+            file.read_to_end(&mut data)?;
+            self.cpu = bincode::deserialize(&data)?;
+        }
+        Ok(())
+    }
+
+    fn save_state(&mut self) -> Result<()> {
+        let mut path = self.savestates_path.clone();
+        fs::create_dir_all(&path)?;
+        path.push("1.state");
+        File::create(path)?.write_all(&bincode::serialize(&self.cpu)?)?;
+        Ok(())
     }
 }
