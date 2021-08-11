@@ -13,4 +13,4 @@ toggle_frame_limiter = "space"
 
 [savestate]
 load_state = "F1"
-save_state = "F2"
+save_state = "Shift+F1"

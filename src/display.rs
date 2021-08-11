@@ -98,6 +98,10 @@ impl DisplayManager {
                     repeat: false,
                     ..
                 } => {
+                    // This has a limitation, in that KeyUp events also have to have
+                    // the same modifiers active in order to register the same Hotkey.
+                    // Moral of the story: Don't use modifiers for Joypad bindings,
+                    // where we care about KeyUp.
                     if let Some(hotkey) = self.hotkey_map.get_hotkey(k, mods) {
                         return DisplayEvent::HotkeyEvent((hotkey, false));
                     }
