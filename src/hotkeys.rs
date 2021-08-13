@@ -100,8 +100,9 @@ struct EmuBindings {
 
 #[derive(Deserialize)]
 struct SavestateBindings {
-    load_state: KeyCombo,
-    save_state: KeyCombo,
+    slot: u8,
+    load: KeyCombo,
+    save: KeyCombo,
 }
 
 #[derive(Deserialize, Default)]
@@ -109,7 +110,7 @@ struct SavestateBindings {
 struct Keybinds {
     joypad: JoypadBindings,
     emu: EmuBindings,
-    savestate: SavestateBindings,
+    savestate: Vec<SavestateBindings>,
 }
 
 impl Default for JoypadBindings {
@@ -135,15 +136,6 @@ impl Default for EmuBindings {
     }
 }
 
-impl Default for SavestateBindings {
-    fn default() -> Self {
-        SavestateBindings {
-            load_state: keycombo!(F1),
-            save_state: keycombo!(Shift; F1),
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug)]
 pub enum JoypadKey {
     Up,
@@ -160,8 +152,8 @@ pub enum JoypadKey {
 pub enum Hotkey {
     Joypad(JoypadKey),
     ToggleFrameLimiter,
-    LoadState,
-    SaveState,
+    LoadState(u8),
+    SaveState(u8),
 }
 
 /// A Hashmap between SDL Keycodes and relevant Hotkeys
@@ -180,7 +172,7 @@ impl Keymap {
         } else {
             Keybinds::default()
         };
-        let map = hashmap! {
+        let mut map = hashmap! {
             keys.joypad.up => Hotkey::Joypad(JoypadKey::Up),
             keys.joypad.down => Hotkey::Joypad(JoypadKey::Down),
             keys.joypad.left => Hotkey::Joypad(JoypadKey::Left),
@@ -190,9 +182,11 @@ impl Keymap {
             keys.joypad.start => Hotkey::Joypad(JoypadKey::Start),
             keys.joypad.select => Hotkey::Joypad(JoypadKey::Select),
             keys.emu.toggle_frame_limiter => Hotkey::ToggleFrameLimiter,
-            keys.savestate.load_state => Hotkey::LoadState,
-            keys.savestate.save_state => Hotkey::SaveState,
         };
+        for state in keys.savestate {
+            map.insert(state.load, Hotkey::LoadState(state.slot));
+            map.insert(state.save, Hotkey::SaveState(state.slot));
+        }
         Ok(Keymap { map })
     }
 

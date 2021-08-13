@@ -123,7 +123,7 @@ pub struct Display<const W: usize, const H: usize> {
 impl<const W: usize, const H: usize> Display<W, H> {
     pub fn new(context: &sdl2::Sdl, position: Option<(i32, i32)>, show_fps: bool) -> Result<Self> {
         let mut window = context.video().map_err(Error::msg)?.window(
-            "gb-emu",
+            "quage",
             W_SCALE * W as u32,
             W_SCALE * H as u32,
         );

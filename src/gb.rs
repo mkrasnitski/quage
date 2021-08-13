@@ -63,14 +63,14 @@ impl GameBoy {
                         self.sdl_manager.toggle_frame_limiter();
                     }
                 }
-                Hotkey::LoadState => {
+                Hotkey::LoadState(slot) => {
                     if pressed {
-                        self.load_state()?;
+                        self.load_state(slot)?;
                     }
                 }
-                Hotkey::SaveState => {
+                Hotkey::SaveState(slot) => {
                     if pressed {
-                        self.save_state()?;
+                        self.save_state(slot)?;
                     }
                 }
             },
@@ -83,22 +83,26 @@ impl GameBoy {
         Ok(false)
     }
 
-    fn load_state(&mut self) -> Result<()> {
+    fn load_state(&mut self, slot: u8) -> Result<()> {
         let mut path = self.savestates_path.clone();
-        path.push("1.state");
+        path.push(format!("{}.state", slot));
         if let Ok(mut file) = File::open(path) {
             let mut data = Vec::new();
             file.read_to_end(&mut data)?;
             self.cpu = bincode::deserialize(&data)?;
+            println!("Loaded slot {}", slot);
+        } else {
+            println!("Slot {} is empty", slot);
         }
         Ok(())
     }
 
-    fn save_state(&mut self) -> Result<()> {
+    fn save_state(&mut self, slot: u8) -> Result<()> {
         let mut path = self.savestates_path.clone();
         fs::create_dir_all(&path)?;
-        path.push("1.state");
+        path.push(format!("{}.state", slot));
         File::create(path)?.write_all(&bincode::serialize(&self.cpu)?)?;
+        println!("Saved slot {}", slot);
         Ok(())
     }
 }

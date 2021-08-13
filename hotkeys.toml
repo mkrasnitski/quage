@@ -11,6 +11,29 @@ select = "tab"
 [emu]
 toggle_frame_limiter = "space"
 
-[savestate]
-load_state = "F1"
-save_state = "Shift+F1"
+# You can map any of slots 0-255 in the same manner as shown, just add
+# an entry below. Not sure why you'd want 256 savestates, but :shrug:
+[[savestate]]
+  slot = 1
+  load = "F1"
+  save = "Shift+F1"
+[[savestate]]
+  slot = 2
+  load = "F2"
+  save = "Shift+F2"
+[[savestate]]
+  slot = 3
+  load = "F3"
+  save = "Shift+F3"
+[[savestate]]
+  slot = 4
+  load = "F4"
+  save = "Shift+F4"
+[[savestate]]
+  slot = 5
+  load = "F5"
+  save = "Shift+F5"
+[[savestate]]
+  slot = 6
+  load = "F6"
+  save = "Shift+F6"
