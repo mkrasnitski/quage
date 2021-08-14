@@ -55,7 +55,7 @@ impl GameBoy {
     }
 
     fn handle_display_events(&mut self) -> Result<bool> {
-        match self.sdl_manager.display_manager.poll_event() {
+        match self.sdl_manager.poll_event() {
             DisplayEvent::HotkeyEvent((key, pressed)) => match key {
                 Hotkey::Joypad(key) => self.cpu.bus.joypad.update_key(key, pressed),
                 Hotkey::ToggleFrameLimiter => {

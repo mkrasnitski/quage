@@ -15,23 +15,27 @@ const W_SCALE: u32 = 3;
 const FRAMERATE: f64 = 4194304.0 / 70224.0;
 
 pub struct SDLManager {
-    pub display_manager: DisplayManager,
     pub display: Display<W_WIDTH, W_HEIGHT>,
     pub tile_display: Option<Display<128, 192>>,
+    event_pump: sdl2::EventPump,
+    hotkey_map: Keymap,
 }
 
 impl SDLManager {
     pub fn new(config: &Config) -> Result<Self> {
-        let display_manager = DisplayManager::new(config)?;
-        let display = display_manager.display(None, config.show_fps)?;
+        let context = sdl2::init().map_err(Error::msg)?;
+        let video_subsystem = context.video().map_err(Error::msg)?;
+        let event_pump = context.event_pump().map_err(Error::msg)?;
+        let display = Display::new(&video_subsystem, None, config.show_fps)?;
         let tile_display = config
             .dump_tiles
-            .then(|| display_manager.display(Some((1220, 250)), false))
+            .then(|| Display::new(&video_subsystem, Some((1220, 250)), false))
             .transpose()?;
         Ok(SDLManager {
-            display_manager,
             display,
             tile_display,
+            event_pump,
+            hotkey_map: Keymap::new(&config.hotkey_file)?,
         })
     }
 
@@ -40,38 +44,6 @@ impl SDLManager {
         if let Some(tile_display) = self.tile_display.as_mut() {
             tile_display.toggle_frame_limiter();
         }
-    }
-}
-
-pub enum DisplayEvent {
-    HotkeyEvent((Hotkey, bool)),
-    Quit,
-    None,
-}
-
-pub struct DisplayManager {
-    hotkey_map: Keymap,
-    context: sdl2::Sdl,
-    event_pump: sdl2::EventPump,
-}
-
-impl DisplayManager {
-    pub fn new(config: &Config) -> Result<Self> {
-        let context = sdl2::init().map_err(Error::msg)?;
-        let event_pump = context.event_pump().map_err(Error::msg)?;
-        Ok(DisplayManager {
-            hotkey_map: Keymap::new(&config.hotkey_file)?,
-            context,
-            event_pump,
-        })
-    }
-
-    pub fn display<const W: usize, const H: usize>(
-        &self,
-        position: Option<(i32, i32)>,
-        show_fps: bool,
-    ) -> Result<Display<W, H>> {
-        Display::new(&self.context, position, show_fps)
     }
 
     pub fn poll_event(&mut self) -> DisplayEvent {
@@ -113,6 +85,12 @@ impl DisplayManager {
     }
 }
 
+pub enum DisplayEvent {
+    HotkeyEvent((Hotkey, bool)),
+    Quit,
+    None,
+}
+
 pub struct Display<const W: usize, const H: usize> {
     limit_framerate: bool,
     show_fps: bool,
@@ -121,12 +99,12 @@ pub struct Display<const W: usize, const H: usize> {
 }
 
 impl<const W: usize, const H: usize> Display<W, H> {
-    pub fn new(context: &sdl2::Sdl, position: Option<(i32, i32)>, show_fps: bool) -> Result<Self> {
-        let mut window = context.video().map_err(Error::msg)?.window(
-            "quage",
-            W_SCALE * W as u32,
-            W_SCALE * H as u32,
-        );
+    pub fn new(
+        video: &sdl2::VideoSubsystem,
+        position: Option<(i32, i32)>,
+        show_fps: bool,
+    ) -> Result<Self> {
+        let mut window = video.window("quage", W_SCALE * W as u32, W_SCALE * H as u32);
         Ok(Display {
             limit_framerate: true,
             show_fps,

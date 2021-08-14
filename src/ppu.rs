@@ -326,7 +326,7 @@ impl PPU {
                 }
 
                 // Window
-                if self.registers.LCDC.bit(5) && self.registers.LY >= self.registers.WY {
+                if self.registers.LCDC.bit(5) && self.wy_ly_latch {
                     let win_tilemap = match self.registers.LCDC.bit(6) {
                         true => 0x9C00,
                         false => 0x9800,

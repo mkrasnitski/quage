@@ -9,8 +9,8 @@ Written in 100% Rust, using SDL2 for graphics.
  - [x] Decent Accuracy (?)
  - [x] Configurable Hotkeys
  - [x] Cross-platform Support
+ - [x] Savestates
  - [ ] Audio
- - [ ] Savestates
  - [ ] Gameboy Color (CGB) support
 
 ## Build Requirements
