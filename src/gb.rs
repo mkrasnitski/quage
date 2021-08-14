@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use zstd::stream::{Decoder, Encoder};
 
 use crate::config::Config;
 use crate::cpu::CPU;
@@ -86,9 +87,10 @@ impl GameBoy {
     fn load_state(&mut self, slot: u8) -> Result<()> {
         let mut path = self.savestates_path.clone();
         path.push(format!("{}.state", slot));
-        if let Ok(mut file) = File::open(path) {
+        if let Ok(file) = File::open(path) {
+            let mut decoder = Decoder::new(file)?;
             let mut data = Vec::new();
-            file.read_to_end(&mut data)?;
+            decoder.read_to_end(&mut data)?;
             self.cpu = bincode::deserialize(&data)?;
             println!("Loaded slot {}", slot);
         } else {
@@ -101,7 +103,9 @@ impl GameBoy {
         let mut path = self.savestates_path.clone();
         fs::create_dir_all(&path)?;
         path.push(format!("{}.state", slot));
-        File::create(path)?.write_all(&bincode::serialize(&self.cpu)?)?;
+        let mut encoder = Encoder::new(File::create(path)?, 0)?;
+        encoder.write_all(&bincode::serialize(&self.cpu)?)?;
+        encoder.finish()?;
         println!("Saved slot {}", slot);
         Ok(())
     }
