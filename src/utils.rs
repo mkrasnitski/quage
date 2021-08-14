@@ -14,19 +14,3 @@ macro_rules! impl_bit_extract {
 
 impl_bit_extract!(u8);
 impl_bit_extract!(u16);
-
-#[macro_export]
-macro_rules! keycombo {
-    ($keycode:ident) => {
-        KeyCombo {
-            key: Keycode::$keycode,
-            mods: BTreeSet::new()
-        }
-    };
-    ($($mod:ident)-+;$keycode:ident) => {{
-        KeyCombo {
-            key: Keycode::$keycode,
-            mods: maplit::btreeset![$(Modifier::$mod),*],
-        }
-    }};
-}

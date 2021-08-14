@@ -1,4 +1,4 @@
-use crate::instruction::*;
+use super::instruction::*;
 use std::fmt;
 
 pub trait InstructionDisplay {

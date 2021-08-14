@@ -6,8 +6,8 @@ use zstd::stream::{Decoder, Encoder};
 
 use crate::config::Config;
 use crate::cpu::CPU;
-use crate::display::*;
 use crate::hotkeys::*;
+use crate::sdl::*;
 
 pub struct GameBoy {
     cpu: CPU,
@@ -57,7 +57,7 @@ impl GameBoy {
 
     fn handle_display_events(&mut self) -> Result<bool> {
         match self.sdl_manager.poll_event() {
-            DisplayEvent::HotkeyEvent((key, pressed)) => match key {
+            SDLEvent::HotkeyEvent((key, pressed)) => match key {
                 Hotkey::Joypad(key) => self.cpu.bus.joypad.update_key(key, pressed),
                 Hotkey::ToggleFrameLimiter => {
                     if pressed {
@@ -75,11 +75,11 @@ impl GameBoy {
                     }
                 }
             },
-            DisplayEvent::Quit => {
+            SDLEvent::Quit => {
                 self.cpu.bus.cartridge.save_external_ram(&self.save_path)?;
                 return Ok(true);
             }
-            DisplayEvent::None => {}
+            SDLEvent::None => {}
         };
         Ok(false)
     }

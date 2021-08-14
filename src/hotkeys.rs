@@ -8,7 +8,20 @@ use std::io::Read;
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::keycombo;
+macro_rules! keycombo {
+    ($keycode:ident) => {
+        KeyCombo {
+            key: Keycode::$keycode,
+            mods: BTreeSet::new()
+        }
+    };
+    ($($mod:ident)-+;$keycode:ident) => {{
+        KeyCombo {
+            key: Keycode::$keycode,
+            mods: maplit::btreeset![$(Modifier::$mod),*],
+        }
+    }};
+}
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Modifier {

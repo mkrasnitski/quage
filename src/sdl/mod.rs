@@ -4,6 +4,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::render::Canvas;
 use sdl2::video::Window;
+use sdl2::VideoSubsystem as Video;
 use spin_sleep::LoopHelper;
 
 use crate::config::Config;
@@ -13,6 +14,12 @@ pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
 const W_SCALE: u32 = 3;
 const FRAMERATE: f64 = 4194304.0 / 70224.0;
+
+pub enum SDLEvent {
+    HotkeyEvent((Hotkey, bool)),
+    Quit,
+    None,
+}
 
 pub struct SDLManager {
     pub display: Display<W_WIDTH, W_HEIGHT>,
@@ -24,12 +31,12 @@ pub struct SDLManager {
 impl SDLManager {
     pub fn new(config: &Config) -> Result<Self> {
         let context = sdl2::init().map_err(Error::msg)?;
-        let video_subsystem = context.video().map_err(Error::msg)?;
+        let video = context.video().map_err(Error::msg)?;
         let event_pump = context.event_pump().map_err(Error::msg)?;
-        let display = Display::new(&video_subsystem, None, config.show_fps)?;
+        let display = Display::new(&video, None, config.show_fps)?;
         let tile_display = config
             .dump_tiles
-            .then(|| Display::new(&video_subsystem, Some((1220, 250)), false))
+            .then(|| Display::new(&video, Some((1220, 250)), false))
             .transpose()?;
         Ok(SDLManager {
             display,
@@ -46,14 +53,14 @@ impl SDLManager {
         }
     }
 
-    pub fn poll_event(&mut self) -> DisplayEvent {
+    pub fn poll_event(&mut self) -> SDLEvent {
         for event in self.event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
                 | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => return DisplayEvent::Quit,
+                } => return SDLEvent::Quit,
                 Event::KeyDown {
                     keycode: Some(k),
                     keymod: mods,
@@ -61,7 +68,7 @@ impl SDLManager {
                     ..
                 } => {
                     if let Some(hotkey) = self.hotkey_map.get_hotkey(k, mods) {
-                        return DisplayEvent::HotkeyEvent((hotkey, true));
+                        return SDLEvent::HotkeyEvent((hotkey, true));
                     }
                 }
                 Event::KeyUp {
@@ -75,20 +82,14 @@ impl SDLManager {
                     // Moral of the story: Don't use modifiers for Joypad bindings,
                     // where we care about KeyUp.
                     if let Some(hotkey) = self.hotkey_map.get_hotkey(k, mods) {
-                        return DisplayEvent::HotkeyEvent((hotkey, false));
+                        return SDLEvent::HotkeyEvent((hotkey, false));
                     }
                 }
                 _ => continue,
             }
         }
-        DisplayEvent::None
+        SDLEvent::None
     }
-}
-
-pub enum DisplayEvent {
-    HotkeyEvent((Hotkey, bool)),
-    Quit,
-    None,
 }
 
 pub struct Display<const W: usize, const H: usize> {
@@ -99,11 +100,7 @@ pub struct Display<const W: usize, const H: usize> {
 }
 
 impl<const W: usize, const H: usize> Display<W, H> {
-    pub fn new(
-        video: &sdl2::VideoSubsystem,
-        position: Option<(i32, i32)>,
-        show_fps: bool,
-    ) -> Result<Self> {
+    pub fn new(video: &Video, position: Option<(i32, i32)>, show_fps: bool) -> Result<Self> {
         let mut window = video.window("quage", W_SCALE * W as u32, W_SCALE * H as u32);
         Ok(Display {
             limit_framerate: true,

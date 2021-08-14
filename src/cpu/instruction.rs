@@ -3,7 +3,7 @@ use enum_primitive_derive::Primitive;
 use num_traits::FromPrimitive;
 use std::fmt;
 
-use crate::debug::InstructionDisplay;
+use super::debug::InstructionDisplay;
 
 #[derive(Debug, Copy, Clone, Primitive)]
 pub enum R8 {

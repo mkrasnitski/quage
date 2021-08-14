@@ -4,7 +4,7 @@ use sdl2::pixels::Color;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::display::*;
+use crate::sdl::*;
 use crate::utils::*;
 
 #[derive(Default, Serialize, Deserialize)]

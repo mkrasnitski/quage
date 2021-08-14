@@ -1,12 +1,17 @@
 #![allow(non_snake_case)]
+mod debug;
+mod flags;
+mod instruction;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::bus::MemoryBus;
 use crate::config::Config;
-use crate::flags::*;
-use crate::instruction::*;
 use crate::utils::*;
+
+use flags::*;
+use instruction::*;
 
 #[derive(Default, Serialize, Deserialize)]
 struct Registers {

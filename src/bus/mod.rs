@@ -1,13 +1,19 @@
 #![allow(non_snake_case)]
+mod cartridge;
+mod joypad;
+mod rtc;
+mod sound;
+mod timers;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
-use crate::cartridge::Cartridge;
-use crate::joypad::Joypad;
 use crate::ppu::PPU;
-use crate::sound::Sound;
-use crate::timers::Timers;
+use cartridge::Cartridge;
+use joypad::Joypad;
+use sound::Sound;
+use timers::Timers;
 
 #[derive(Default, Serialize, Deserialize)]
 struct DMA {
