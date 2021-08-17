@@ -122,17 +122,29 @@ impl CPU {
     }
 
     fn parse_next_instruction(&mut self) -> Result<Instruction> {
-        let byte = self.consume_byte();
-        let (byte, prefix) = if byte == 0xcb {
-            (self.consume_byte(), true)
+        let mut byte = self.consume_byte();
+        let mut prefix = false;
+        let (op, (len, cycles)) = if byte == 0xcb {
+            byte = self.consume_byte();
+            prefix = true;
+            OP::from_prefix_byte(byte)
         } else {
-            (byte, false)
+            OP::from_byte(byte)?
         };
-        let mut instr = Instruction::from_byte(byte, prefix)?;
-        for _ in instr.bytes.len()..instr.len as usize {
-            instr.bytes.push(self.consume_byte());
+        let mut bytes = Vec::with_capacity(len as usize);
+        if prefix {
+            bytes.push(0xcb);
         }
-        Ok(instr)
+        bytes.push(byte);
+        for _ in bytes.len()..len as usize {
+            bytes.push(self.consume_byte());
+        }
+        Ok(Instruction {
+            op,
+            len,
+            cycles,
+            bytes,
+        })
     }
 
     fn consume_byte(&mut self) -> u8 {
@@ -369,8 +381,7 @@ impl CPU {
 
             OP::BIT(bit, r8) => {
                 let res = self.read_r8(r8);
-                let bit = bit as u8;
-                self.set_flags(!res.bit(bit), false, true, self.registers.f.c);
+                self.set_flags(!res.bit(bit as u8), false, true, self.registers.f.c);
             }
             OP::SWAP(r8) => {
                 let val = self.read_r8(r8).rotate_right(4);

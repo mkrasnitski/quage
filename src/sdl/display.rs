@@ -18,16 +18,18 @@ pub struct Display<const W: usize, const H: usize> {
 impl<const W: usize, const H: usize> Display<W, H> {
     pub fn new(video: &Video, position: Option<(i32, i32)>, show_fps: bool) -> Result<Self> {
         let mut window = video.window("quage", W_SCALE * W as u32, W_SCALE * H as u32);
+        let mut canvas = match position {
+            Some((x, y)) => window.position(x, y),
+            None => window.position_centered(),
+        }
+        .build()?
+        .into_canvas()
+        .build()?;
+        canvas.set_logical_size(W as u32, H as u32)?;
         Ok(Display {
             limit_framerate: true,
             show_fps,
-            canvas: match position {
-                Some((x, y)) => window.position(x, y),
-                None => window.position_centered(),
-            }
-            .build()?
-            .into_canvas()
-            .build()?,
+            canvas,
             frame_limiter: LoopHelper::builder()
                 .report_interval_s(1.0)
                 .build_with_target_rate(FRAMERATE),

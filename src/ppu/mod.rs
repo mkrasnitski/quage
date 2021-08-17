@@ -1,5 +1,4 @@
 #![allow(non_snake_case)]
-use anyhow::Result;
 use sdl2::pixels::Color;
 use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
@@ -115,8 +114,8 @@ pub struct PPU {
 }
 
 impl PPU {
-    pub fn new() -> Result<Self> {
-        Ok(PPU {
+    pub fn new() -> Self {
+        PPU {
             memory: [0; 0x2000],
             oam: [0; 0xA0],
             registers: PPURegisters::new(),
@@ -134,7 +133,7 @@ impl PPU {
             ly_coincidence: false,
             wy_ly_latch: false,
             lcd_startup: false,
-        })
+        }
     }
 
     // fn memory_lock(&self, addr: u16) -> bool {
@@ -448,7 +447,6 @@ impl PPU {
     }
 
     fn decode_tile_row(&self, tile_num: u8, row_num: u8, is_sprite: bool) -> [u8; 8] {
-        let mut row = [0; 8];
         let tile_row_offset = if !self.registers.LCDC.bit(4) && tile_num < 0x80 && !is_sprite {
             0x9000
         } else {
@@ -457,6 +455,7 @@ impl PPU {
             + 2 * row_num as u16;
         let hi = self.read_byte(tile_row_offset + 1);
         let lo = self.read_byte(tile_row_offset);
+        let mut row = [0; 8];
         for i in 0..8 {
             row[7 - i] = (((hi >> i) & 1) << 1) | ((lo >> i) & 1);
         }

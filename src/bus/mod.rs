@@ -46,7 +46,7 @@ pub struct MemoryBus {
 impl MemoryBus {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>) -> Result<Self> {
         Ok(MemoryBus {
-            ppu: PPU::new()?,
+            ppu: PPU::new(),
             timers: Timers::new(),
             joypad: Joypad::new(),
             sound: Sound::new(),
