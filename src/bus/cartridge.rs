@@ -58,7 +58,7 @@ pub struct Mapper {
     ram_enabled: bool,
     flag: bool,
 
-    rtc: RTC,
+    pub rtc: RTC,
     rtc_enabled: bool,
     prepare_rtc_latch: bool,
 }
@@ -184,9 +184,9 @@ impl Mapper {
 
 #[derive(Serialize, Deserialize)]
 pub struct Cartridge {
-    contents: Vec<u8>,
-    ram: Vec<u8>,
-    mapper: Mapper,
+    pub contents: Vec<u8>,
+    pub ram: Vec<u8>,
+    pub mapper: Mapper,
 }
 
 impl Cartridge {
@@ -307,6 +307,9 @@ impl Cartridge {
             | MapperType::MBC5BattRam => {
                 if let Ok(mut file) = File::open(filename) {
                     file.read_exact(&mut self.ram)?;
+                    let mut rtc_data = Vec::new();
+                    file.read_to_end(&mut rtc_data)?;
+                    self.mapper.rtc = bincode::deserialize(&rtc_data)?;
                 }
             }
             _ => {}
@@ -323,7 +326,9 @@ impl Cartridge {
             | MapperType::MBC5BattRam => {
                 let dir = filename.parent().unwrap();
                 std::fs::create_dir_all(dir)?;
-                File::create(filename)?.write_all(&self.ram)?;
+                let mut file = File::create(filename)?;
+                file.write_all(&self.ram)?;
+                file.write_all(&bincode::serialize(&self.mapper.rtc)?)?;
             }
             _ => {}
         };

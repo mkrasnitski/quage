@@ -78,7 +78,7 @@ impl CPU {
             cpu.registers.l = 0x4d;
             cpu.registers.f = Flags::from(0xb0);
             cpu.sp = 0xfffe;
-            cpu.bus.timers.DIV = 0xABE4; // ABCC is the actual right value here
+            cpu.bus.timers.DIV = 0xABE4; // one of ABCC-ABCF is the actual right value here
             cpu.bus.write_byte(0xff10, 0x80);
             cpu.bus.write_byte(0xff11, 0xbf);
             cpu.bus.write_byte(0xff12, 0xf3);
@@ -102,6 +102,18 @@ impl CPU {
             cpu.pc = 0x100;
         }
         Ok(cpu)
+    }
+
+    pub fn reset(&mut self, config: &Config) -> Result<()> {
+        let mut cpu = CPU::new(
+            self.bus.bootrom.clone(),
+            self.bus.cartridge.contents.clone(),
+            &config,
+        )?;
+        cpu.bus.cartridge.ram = self.bus.cartridge.ram.clone();
+        cpu.bus.cartridge.mapper.rtc = self.bus.cartridge.mapper.rtc.clone();
+        *self = cpu;
+        Ok(())
     }
 
     pub fn step(&mut self) -> Result<()> {

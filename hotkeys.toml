@@ -10,6 +10,7 @@ select = "tab"
 
 [emu]
 toggle_frame_limiter = "space"
+reset = "Ctrl+r"
 
 # You can map any of slots 0-255 in the same manner as shown, just add
 # an entry below. Not sure why you'd want 256 savestates, but :shrug:

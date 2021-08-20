@@ -109,6 +109,7 @@ struct JoypadBindings {
 #[derive(Deserialize)]
 struct EmuBindings {
     toggle_frame_limiter: KeyCombo,
+    reset: KeyCombo,
 }
 
 #[derive(Deserialize)]
@@ -145,6 +146,7 @@ impl Default for EmuBindings {
     fn default() -> Self {
         EmuBindings {
             toggle_frame_limiter: keycombo!(Space),
+            reset: keycombo!(Ctrl; R),
         }
     }
 }
@@ -165,6 +167,7 @@ pub enum JoypadKey {
 pub enum Hotkey {
     Joypad(JoypadKey),
     ToggleFrameLimiter,
+    Reset,
     LoadState(u8),
     SaveState(u8),
 }
@@ -195,6 +198,7 @@ impl Keymap {
             keys.joypad.start => Hotkey::Joypad(JoypadKey::Start),
             keys.joypad.select => Hotkey::Joypad(JoypadKey::Select),
             keys.emu.toggle_frame_limiter => Hotkey::ToggleFrameLimiter,
+            keys.emu.reset => Hotkey::Reset,
         };
         for state in keys.savestate {
             map.insert(state.load, Hotkey::LoadState(state.slot));

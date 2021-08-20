@@ -12,6 +12,7 @@ use crate::sdl::*;
 pub struct GameBoy {
     cpu: CPU,
     sdl_manager: SDLManager,
+    config: Config,
     save_path: PathBuf,
     savestates_path: PathBuf,
 }
@@ -35,6 +36,7 @@ impl GameBoy {
         let mut gb = GameBoy {
             cpu: CPU::new(bootrom, cartridge, &config)?,
             sdl_manager: SDLManager::new(&config)?,
+            config,
             save_path,
             savestates_path,
         };
@@ -62,6 +64,11 @@ impl GameBoy {
                 Hotkey::ToggleFrameLimiter => {
                     if pressed {
                         self.sdl_manager.toggle_frame_limiter();
+                    }
+                }
+                Hotkey::Reset => {
+                    if pressed {
+                        self.cpu.reset(&self.config)?;
                     }
                 }
                 Hotkey::LoadState(slot) => {

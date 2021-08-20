@@ -32,12 +32,12 @@ pub struct MemoryBus {
     pub joypad: Joypad,
     pub sound: Sound,
     pub cartridge: Cartridge,
+    pub bootrom: Vec<u8>,
+    bootrom_switch: bool,
     #[serde(with = "BigArray")]
     work_ram: [u8; 0x2000],
     #[serde(with = "BigArray")]
     hram: [u8; 0x7f],
-    bootrom: Vec<u8>,
-    bootrom_switch: bool,
     dma: DMA,
     pub IE: u8,
     pub IF: u8,
