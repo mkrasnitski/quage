@@ -127,7 +127,7 @@ impl Mapper {
                     if val < max_ram_banks {
                         self.ram_bank = val;
                         self.rtc_enabled = false;
-                    } else if val >= 0x08 && val <= 0x0C {
+                    } else if (0x08..=0x0C).contains(&val) {
                         self.ram_bank = val;
                         self.rtc_enabled = true;
                     } else {

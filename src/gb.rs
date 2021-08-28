@@ -59,7 +59,7 @@ impl GameBoy {
 
     fn handle_display_events(&mut self) -> Result<bool> {
         match self.sdl_manager.poll_event() {
-            SDLEvent::HotkeyEvent((key, pressed)) => match key {
+            Event::Hotkey((key, pressed)) => match key {
                 Hotkey::Joypad(key) => self.cpu.bus.joypad.update_key(key, pressed),
                 Hotkey::ToggleFrameLimiter => {
                     if pressed {
@@ -82,11 +82,11 @@ impl GameBoy {
                     }
                 }
             },
-            SDLEvent::Quit => {
+            Event::Quit => {
                 self.cpu.bus.cartridge.save_external_ram(&self.save_path)?;
                 return Ok(true);
             }
-            SDLEvent::None => {}
+            Event::None => {}
         };
         Ok(false)
     }

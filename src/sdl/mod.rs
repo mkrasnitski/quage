@@ -1,7 +1,7 @@
 mod display;
 
 use anyhow::{Error, Result};
-use sdl2::event::Event;
+use sdl2::event::Event as SDLEvent;
 use sdl2::keyboard::Keycode;
 
 use crate::config::Config;
@@ -11,8 +11,8 @@ use display::Display;
 pub const W_WIDTH: usize = 160;
 pub const W_HEIGHT: usize = 144;
 
-pub enum SDLEvent {
-    HotkeyEvent((Hotkey, bool)),
+pub enum Event {
+    Hotkey((Hotkey, bool)),
     Quit,
     None,
 }
@@ -49,25 +49,25 @@ impl SDLManager {
         }
     }
 
-    pub fn poll_event(&mut self) -> SDLEvent {
+    pub fn poll_event(&mut self) -> Event {
         for event in self.event_pump.poll_iter() {
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
+                SDLEvent::Quit { .. }
+                | SDLEvent::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => return SDLEvent::Quit,
-                Event::KeyDown {
+                } => return Event::Quit,
+                SDLEvent::KeyDown {
                     keycode: Some(k),
                     keymod: mods,
                     repeat: false,
                     ..
                 } => {
                     if let Some(hotkey) = self.hotkey_map.get_hotkey(k, mods) {
-                        return SDLEvent::HotkeyEvent((hotkey, true));
+                        return Event::Hotkey((hotkey, true));
                     }
                 }
-                Event::KeyUp {
+                SDLEvent::KeyUp {
                     keycode: Some(k),
                     keymod: mods,
                     repeat: false,
@@ -78,12 +78,12 @@ impl SDLManager {
                     // Moral of the story: Don't use modifiers for Joypad bindings,
                     // where we care about KeyUp.
                     if let Some(hotkey) = self.hotkey_map.get_hotkey(k, mods) {
-                        return SDLEvent::HotkeyEvent((hotkey, false));
+                        return Event::Hotkey((hotkey, false));
                     }
                 }
                 _ => continue,
             }
         }
-        SDLEvent::None
+        Event::None
     }
 }

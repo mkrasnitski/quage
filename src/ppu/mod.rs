@@ -240,9 +240,8 @@ impl PPU {
     pub fn paint_display(&mut self, sdl_manager: &mut SDLManager) {
         self.draw_frame = false;
         sdl_manager.display.draw(&self.viewport);
-        if sdl_manager.tile_display.is_some() {
-            let tiles = self.dump_tiles();
-            sdl_manager.tile_display.as_mut().unwrap().draw(&tiles);
+        if let Some(tile_display) = sdl_manager.tile_display.as_mut() {
+            tile_display.draw(&self.dump_tiles());
         }
     }
 

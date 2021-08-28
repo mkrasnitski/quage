@@ -108,7 +108,7 @@ impl CPU {
         let mut cpu = CPU::new(
             self.bus.bootrom.clone(),
             self.bus.cartridge.contents.clone(),
-            &config,
+            config,
         )?;
         cpu.bus.cartridge.ram = self.bus.cartridge.ram.clone();
         cpu.bus.cartridge.mapper.rtc = self.bus.cartridge.mapper.rtc.clone();
