@@ -1,83 +1,121 @@
+use crate::utils::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Default, Serialize, Deserialize)]
-struct SoundRegisters {
-    ch1_freq_sweep: u8,
-    ch1_length_duty: u8,
-    ch1_volume: u8,
-    ch1_freq_lo: u8,
-    ch1_freq_hi: u8,
-
-    ch2_length_duty: u8,
-    ch2_volume: u8,
-    ch2_freq_lo: u8,
-    ch2_freq_hi: u8,
-
-    ch3_enable: u8,
-    ch3_length: u8,
-    ch3_level: u8,
-    ch3_freq_lo: u8,
-    ch3_freq_hi: u8,
-
-    ch4_length: u8,
-    ch4_volume: u8,
-    ch4_poly_ctr: u8,
-    ch4_ctr_cons: u8,
-
-    ch_control: u8,
-    output_select: u8,
-    sound_enable: u8,
+#[derive(Serialize, Deserialize)]
+struct Channel1 {
+    nr10: u8,
+    nr11: u8,
+    nr12: u8,
+    nr13: u8,
+    nr14: u8,
 }
 
 #[derive(Serialize, Deserialize)]
+struct Channel2 {
+    nr21: u8,
+    nr22: u8,
+    nr23: u8,
+    nr24: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Channel3 {
+    nr30: u8,
+    nr31: u8,
+    nr32: u8,
+    nr33: u8,
+    nr34: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Channel4 {
+    nr41: u8,
+    nr42: u8,
+    nr43: u8,
+    nr44: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SoundRegisters {
+    ch1: Channel1,
+    ch2: Channel2,
+    ch3: Channel3,
+    ch4: Channel4,
+    nr50: u8,
+    nr51: u8,
+    nr52: u8,
+}
+
+impl Default for SoundRegisters {
+    fn default() -> Self {
+        SoundRegisters {
+            ch1: Channel1 {
+                nr10: 0x80,
+                nr11: 0x00,
+                nr12: 0x00,
+                nr13: 0x00,
+                nr14: 0x38,
+            },
+            ch2: Channel2 {
+                nr21: 0x00,
+                nr22: 0x00,
+                nr23: 0x00,
+                nr24: 0x38,
+            },
+            ch3: Channel3 {
+                nr30: 0x7F,
+                nr31: 0x00,
+                nr32: 0x9F,
+                nr33: 0x00,
+                nr34: 0x38,
+            },
+            ch4: Channel4 {
+                nr41: 0xC0,
+                nr42: 0x00,
+                nr43: 0x00,
+                nr44: 0x3F,
+            },
+            nr50: 0x00,
+            nr51: 0x00,
+            nr52: 0x70,
+        }
+    }
+}
+
+#[derive(Default, Serialize, Deserialize)]
 pub struct Sound {
     registers: SoundRegisters,
     wave_ram: [u8; 0x10],
 }
 
 impl Sound {
-    pub fn new() -> Self {
-        Sound {
-            registers: SoundRegisters {
-                ch1_freq_sweep: 0x80,
-                ch3_enable: 0x7F,
-                ch3_level: 0x9F,
-                ch4_length: 0xC0,
-                ch4_ctr_cons: 0x3F,
-                sound_enable: 0x70,
-                ..Default::default()
-            },
-            wave_ram: [0; 0x10],
-        }
-    }
-
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0xFF10 => self.registers.ch1_freq_sweep,
-            0xFF11 => self.registers.ch1_length_duty,
-            0xFF12 => self.registers.ch1_volume,
-            0xFF13 => self.registers.ch1_freq_lo,
-            0xFF14 => self.registers.ch1_freq_hi,
+            0xFF10 => self.registers.ch1.nr10,
+            0xFF11 => self.registers.ch1.nr11 | 0x3F,
+            0xFF12 => self.registers.ch1.nr12,
+            0xFF13 => self.registers.ch1.nr13 | 0xFF,
+            0xFF14 => self.registers.ch1.nr14 | 0x87,
 
-            0xFF16 => self.registers.ch2_length_duty,
-            0xFF17 => self.registers.ch2_volume,
-            0xFF18 => self.registers.ch2_freq_lo,
-            0xFF19 => self.registers.ch2_freq_hi,
+            0xFF16 => self.registers.ch2.nr21 | 0x3F,
+            0xFF17 => self.registers.ch2.nr22,
+            0xFF18 => self.registers.ch2.nr23 | 0xFF,
+            0xFF19 => self.registers.ch2.nr24 | 0x87,
 
-            0xFF1A => self.registers.ch3_enable,
-            0xFF1B => self.registers.ch3_length,
-            0xFF1C => self.registers.ch3_level,
-            0xFF1D => self.registers.ch3_freq_lo,
-            0xFF1E => self.registers.ch3_freq_hi,
+            0xFF1A => self.registers.ch3.nr30,
+            0xFF1B => self.registers.ch3.nr31 | 0xFF,
+            0xFF1C => self.registers.ch3.nr32,
+            0xFF1D => self.registers.ch3.nr33 | 0xFF,
+            0xFF1E => self.registers.ch3.nr34 | 0x87,
 
-            0xFF20 => self.registers.ch4_length,
-            0xFF21 => self.registers.ch4_volume,
-            0xFF22 => self.registers.ch4_poly_ctr,
-            0xFF23 => self.registers.ch4_ctr_cons,
+            0xFF20 => self.registers.ch4.nr41 | 0x3F,
+            0xFF21 => self.registers.ch4.nr42,
+            0xFF22 => self.registers.ch4.nr43,
+            0xFF23 => self.registers.ch4.nr44 | 0x80,
 
-            0xFF24 => self.registers.ch_control,
-            0xFF25 => self.registers.output_select,
-            0xFF26 => self.registers.sound_enable,
+            0xFF24 => self.registers.nr50,
+            0xFF25 => self.registers.nr51,
+            0xFF26 => self.registers.nr52,
 
             0xFF30..=0xFF3F => self.wave_ram[addr as usize - 0xFF30],
             _ => panic!("Invalid Sound register read: {:04x}", addr),
@@ -85,35 +123,42 @@ impl Sound {
     }
 
     pub fn write_byte(&mut self, addr: u16, val: u8) {
-        match addr {
-            0xFF10 => self.registers.ch1_freq_sweep = val | 0x80,
-            0xFF11 => self.registers.ch1_length_duty = val,
-            0xFF12 => self.registers.ch1_volume = val,
-            0xFF13 => self.registers.ch1_freq_lo = val,
-            0xFF14 => self.registers.ch1_freq_hi = val,
+        if self.registers.nr52.bit(7) || addr == 0xFF26 {
+            match addr {
+                0xFF10 => self.registers.ch1.nr10 = val | 0x80,
+                0xFF11 => self.registers.ch1.nr11 = val,
+                0xFF12 => self.registers.ch1.nr12 = val,
+                0xFF13 => self.registers.ch1.nr13 = val,
+                0xFF14 => self.registers.ch1.nr14 = val | 0x38,
 
-            0xFF16 => self.registers.ch2_length_duty = val,
-            0xFF17 => self.registers.ch2_volume = val,
-            0xFF18 => self.registers.ch2_freq_lo = val,
-            0xFF19 => self.registers.ch2_freq_hi = val,
+                0xFF16 => self.registers.ch2.nr21 = val,
+                0xFF17 => self.registers.ch2.nr22 = val,
+                0xFF18 => self.registers.ch2.nr23 = val,
+                0xFF19 => self.registers.ch2.nr24 = val | 0x38,
 
-            0xFF1A => self.registers.ch3_enable = val | 0x7F,
-            0xFF1B => self.registers.ch3_length = val,
-            0xFF1C => self.registers.ch3_level = val | 0x9F,
-            0xFF1D => self.registers.ch3_freq_lo = val,
-            0xFF1E => self.registers.ch3_freq_hi = val,
+                0xFF1A => self.registers.ch3.nr30 = val | 0x7F,
+                0xFF1B => self.registers.ch3.nr31 = val,
+                0xFF1C => self.registers.ch3.nr32 = val | 0x9F,
+                0xFF1D => self.registers.ch3.nr33 = val,
+                0xFF1E => self.registers.ch3.nr34 = val | 0x38,
 
-            0xFF20 => self.registers.ch4_length = val | 0xC0,
-            0xFF21 => self.registers.ch4_volume = val,
-            0xFF22 => self.registers.ch4_poly_ctr = val,
-            0xFF23 => self.registers.ch4_ctr_cons = val | 0x3F,
+                0xFF20 => self.registers.ch4.nr41 = val | 0xC0,
+                0xFF21 => self.registers.ch4.nr42 = val,
+                0xFF22 => self.registers.ch4.nr43 = val,
+                0xFF23 => self.registers.ch4.nr44 = val | 0x3F,
 
-            0xFF24 => self.registers.ch_control = val,
-            0xFF25 => self.registers.output_select = val,
-            0xFF26 => self.registers.sound_enable = val | 0x70,
+                0xFF24 => self.registers.nr50 = val,
+                0xFF25 => self.registers.nr51 = val,
+                0xFF26 => {
+                    if !val.bit(7) {
+                        self.registers = SoundRegisters::default();
+                    }
+                    self.registers.nr52 = (val | 0x70) & 0xF0;
+                }
 
-            0xFF30..=0xFF3F => self.wave_ram[addr as usize - 0xFF30] = val,
-            _ => panic!("Invalid Sound register write: {:04x} {:02x}", addr, val),
+                0xFF30..=0xFF3F => self.wave_ram[addr as usize - 0xFF30] = val,
+                _ => panic!("Invalid Sound register write: {:04x} {:02x}", addr, val),
+            }
         }
     }
 }

@@ -49,7 +49,7 @@ impl MemoryBus {
             ppu: PPU::new(),
             timers: Timers::new(),
             joypad: Joypad::new(),
-            sound: Sound::new(),
+            sound: Sound::default(),
             cartridge: Cartridge::new(cartridge)?,
             work_ram: rand::random(),
             dma: DMA::default(),
