@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
+mod apu;
 mod cartridge;
 mod joypad;
 mod rtc;
-mod sound;
 mod timers;
 
 use anyhow::Result;
@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 use crate::ppu::PPU;
+use apu::APU;
 use cartridge::Cartridge;
 use joypad::Joypad;
-use sound::Sound;
 use timers::Timers;
 
 #[derive(Default, Serialize, Deserialize)]
@@ -28,9 +28,9 @@ struct DMA {
 #[derive(Serialize, Deserialize)]
 pub struct MemoryBus {
     pub ppu: PPU,
+    pub apu: APU,
     pub timers: Timers,
     pub joypad: Joypad,
-    pub sound: Sound,
     pub cartridge: Cartridge,
     pub bootrom: Vec<u8>,
     bootrom_switch: bool,
@@ -47,9 +47,9 @@ impl MemoryBus {
     pub fn new(bootrom: Vec<u8>, cartridge: Vec<u8>) -> Result<Self> {
         Ok(MemoryBus {
             ppu: PPU::new(),
+            apu: APU::new(),
             timers: Timers::new(),
             joypad: Joypad::new(),
-            sound: Sound::default(),
             cartridge: Cartridge::new(cartridge)?,
             work_ram: rand::random(),
             dma: DMA::default(),
@@ -133,7 +133,7 @@ impl MemoryBus {
             0xFF00 => self.joypad.read(),
             0xFF04..=0xFF07 => self.timers.read_byte(addr),
             0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 | 0xFF30..=0xFF3F => {
-                self.sound.read_byte(addr)
+                self.apu.read_byte(addr)
             }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.read_byte(addr),
             0xFF46 => self.dma.base,
@@ -171,7 +171,7 @@ impl MemoryBus {
             0xFF00 => self.joypad.write(val),
             0xFF04..=0xFF07 => self.timers.write_byte(addr, val),
             0xFF10..=0xFF14 | 0xFF16..=0xFF1E | 0xFF20..=0xFF26 | 0xFF30..=0xFF3F => {
-                self.sound.write_byte(addr, val)
+                self.apu.write_byte(addr, val)
             }
             0xFF40..=0xFF45 | 0xFF47..=0xFF4B => self.ppu.write_byte(addr, val),
             0xFF46 => {

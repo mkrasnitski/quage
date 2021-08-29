@@ -36,7 +36,7 @@ struct Channel4 {
 }
 
 #[derive(Serialize, Deserialize)]
-struct SoundRegisters {
+struct APURegisters {
     ch1: Channel1,
     ch2: Channel2,
     ch3: Channel3,
@@ -46,9 +46,9 @@ struct SoundRegisters {
     nr52: u8,
 }
 
-impl Default for SoundRegisters {
+impl Default for APURegisters {
     fn default() -> Self {
-        SoundRegisters {
+        APURegisters {
             ch1: Channel1 {
                 nr10: 0x80,
                 nr11: 0x00,
@@ -82,13 +82,20 @@ impl Default for SoundRegisters {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
-pub struct Sound {
-    registers: SoundRegisters,
+#[derive(Serialize, Deserialize)]
+pub struct APU {
+    registers: APURegisters,
     wave_ram: [u8; 0x10],
 }
 
-impl Sound {
+impl APU {
+    pub fn new() -> Self {
+        APU {
+            registers: APURegisters::default(),
+            wave_ram: [0; 0x10],
+        }
+    }
+
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0xFF10 => self.registers.ch1.nr10,
@@ -118,7 +125,7 @@ impl Sound {
             0xFF26 => self.registers.nr52,
 
             0xFF30..=0xFF3F => self.wave_ram[addr as usize - 0xFF30],
-            _ => panic!("Invalid Sound register read: {:04x}", addr),
+            _ => panic!("Invalid APU register read: {:04x}", addr),
         }
     }
 
@@ -151,13 +158,13 @@ impl Sound {
                 0xFF25 => self.registers.nr51 = val,
                 0xFF26 => {
                     if !val.bit(7) {
-                        self.registers = SoundRegisters::default();
+                        self.registers = APURegisters::default();
                     }
                     self.registers.nr52 = (val | 0x70) & 0xF0;
                 }
 
                 0xFF30..=0xFF3F => self.wave_ram[addr as usize - 0xFF30] = val,
-                _ => panic!("Invalid Sound register write: {:04x} {:02x}", addr, val),
+                _ => panic!("Invalid APU register write: {:04x} {:02x}", addr, val),
             }
         }
     }
