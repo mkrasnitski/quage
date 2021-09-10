@@ -141,19 +141,18 @@ impl MemoryBus {
             0xFF0F => self.IF,
             0xFFFF => self.IE,
 
-            // stubs
-            0xFF01 => 0x00, // serial
+            // serial
+            0xFF01 => 0x00,
             0xFF02 => 0x7E,
 
-            // unused on DMG:
-            // 0xFF03
-            // 0xFF08..=0xFF0E
-            // 0xFF15
-            // 0xFF1F
-            // 0xFF27..=0xFF2F
-            // 0xFF4C..=0xFF4F
-            // 0xFF51..=0xFF7F
-            _ => 0xFF,
+            // unused on DMG
+            0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF15
+            | 0xFF1F
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF4F
+            | 0xFF51..=0xFF7F => 0xFF,
         }
     }
 
@@ -188,11 +187,17 @@ impl MemoryBus {
             0xFF0F => self.IF = val | 0xE0,
             0xFFFF => self.IE = val,
 
-            // stubs
-            0xFF01 | 0xFF02 => {} // serial
+            // serial
+            0xFF01 | 0xFF02 => {}
 
-            // unused
-            _ => {}
+            // unused on DMG
+            0xFF03
+            | 0xFF08..=0xFF0E
+            | 0xFF15
+            | 0xFF1F
+            | 0xFF27..=0xFF2F
+            | 0xFF4C..=0xFF4F
+            | 0xFF51..=0xFF7F => {}
         }
     }
 

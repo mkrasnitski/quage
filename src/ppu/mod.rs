@@ -81,12 +81,12 @@ impl Sprite {
     }
 }
 
-struct Viewport<const W: usize, const H: usize>;
-
-impl<const W: usize, const H: usize> Viewport<W, H> {
-    fn new() -> Box<[[Color; W]; H]> {
-        Box::new([[Color::WHITE; W]; H])
-    }
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq)]
+enum PPUMode {
+    HBlank = 0,
+    VBlank = 1,
+    OAMScan = 2,
+    Drawing = 3,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -95,14 +95,14 @@ pub struct PPU {
     pub memory: [u8; 0x2000],
     #[serde(with = "BigArray")]
     pub oam: [u8; 0xA0],
-    #[serde(skip, default = "Viewport::new")]
+    #[serde(skip, default = "PPU::new_viewport")]
     pub viewport: Box<[[Color; W_WIDTH]; W_HEIGHT]>,
     registers: PPURegisters,
     interrupts: PPUInterrupts,
     oam_sprites: Vec<Sprite>,
     oam_index: usize,
 
-    mode: u8,
+    mode: PPUMode,
     dots: u64,
     cycles: u64,
 
@@ -120,11 +120,11 @@ impl PPU {
             oam: [0; 0xA0],
             registers: PPURegisters::new(),
             interrupts: PPUInterrupts::default(),
-            viewport: Viewport::new(),
+            viewport: PPU::new_viewport(),
             oam_sprites: Vec::new(),
             oam_index: 0,
 
-            mode: 0,
+            mode: PPUMode::HBlank,
             dots: 0,
             cycles: 0,
 
@@ -136,13 +136,17 @@ impl PPU {
         }
     }
 
+    fn new_viewport<const W: usize, const H: usize>() -> Box<[[Color; W]; H]> {
+        Box::new([[Color::WHITE; W]; H])
+    }
+
     // fn memory_lock(&self, addr: u16) -> bool {
     //     if !self.registers.LCDC.bit(7) {
     //         false
     //     } else if (0x8000..=0x9FFF).contains(&addr) {
-    //         self.mode == 3
+    //         self.mode == PPUMode::Drawing
     //     } else if (0xFE00..=0xFE9F).contains(&addr) {
-    //         self.mode >= 2
+    //         self.mode == PPUMode::OAMScan || self.mode == PPUMode::Drawing
     //     } else {
     //         false
     //     }
@@ -190,7 +194,7 @@ impl PPU {
                     if !self.registers.LCDC.bit(7) {
                         self.dots = 0;
                         self.registers.LY = 0;
-                        self.set_mode(0);
+                        self.set_mode(PPUMode::HBlank);
                     } else if !old_val.bit(7) {
                         self.lcd_startup = true;
                     }
@@ -268,22 +272,22 @@ impl PPU {
                 if clocks == 0 {
                     self.oam_sprites.clear();
                     self.oam_index = 0;
-                    self.set_mode(2);
+                    self.set_mode(PPUMode::OAMScan);
                     if self.lcd_startup {
                         self.registers.STAT &= 0b11111100;
                     }
                 }
                 self.oam_scan();
-            } else if self.mode != 0 {
+            } else if self.mode != PPUMode::HBlank {
                 if clocks == oam_length {
                     if self.lcd_startup {
                         self.lcd_startup = false;
                     }
-                    self.set_mode(3);
+                    self.set_mode(PPUMode::Drawing);
                     self.draw_line();
                 }
                 if clocks == 63 {
-                    self.set_mode(0);
+                    self.set_mode(PPUMode::HBlank);
                 }
             }
         } else {
@@ -294,7 +298,7 @@ impl PPU {
                 }
             }
             self.wy_ly_latch = false;
-            self.set_mode(1);
+            self.set_mode(PPUMode::VBlank);
         }
     }
 
@@ -385,17 +389,14 @@ impl PPU {
                 }
             }
         }
-
-        for i in 0..160 {
-            self.viewport[self.registers.LY as usize][i] = scanline[i].decode();
-        }
+        self.viewport[self.registers.LY as usize] = scanline.map(|p| p.decode());
     }
 
-    fn set_mode(&mut self, mode: u8) {
+    fn set_mode(&mut self, mode: PPUMode) {
         self.mode = mode;
         self.registers.STAT &= 0b11111100;
-        self.registers.STAT |= self.mode & 0b11;
-        if self.mode < 3 {
+        self.registers.STAT |= self.mode as u8;
+        if self.mode != PPUMode::Drawing {
             self.update_stat_condition();
         }
     }
@@ -416,7 +417,7 @@ impl PPU {
         self.stat_condition = self.registers.STAT.bit(6) && self.ly_coincidence;
         for i in 0..3 {
             if self.registers.STAT.bit(i + 3) {
-                self.stat_condition |= self.mode == i;
+                self.stat_condition |= (self.mode as u8) == i;
             }
         }
         if self.stat_condition && !old_val {
