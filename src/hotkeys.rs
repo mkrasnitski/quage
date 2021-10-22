@@ -1,5 +1,4 @@
 use anyhow::Result;
-use maplit::hashmap;
 use sdl2::keyboard::{Keycode, Mod};
 use serde::{de, Deserialize, Deserializer};
 use std::collections::{BTreeSet, HashMap};
@@ -18,7 +17,7 @@ macro_rules! keycombo {
     ($($mod:ident)-+;$keycode:ident) => {{
         KeyCombo {
             key: Keycode::$keycode,
-            mods: maplit::btreeset![$(Modifier::$mod),*],
+            mods: BTreeSet::from([$(Modifier::$mod),*]),
         }
     }};
 }
@@ -188,18 +187,18 @@ impl Keymap {
         } else {
             Keybinds::default()
         };
-        let mut map = hashmap! {
-            keys.joypad.up => Hotkey::Joypad(JoypadKey::Up),
-            keys.joypad.down => Hotkey::Joypad(JoypadKey::Down),
-            keys.joypad.left => Hotkey::Joypad(JoypadKey::Left),
-            keys.joypad.right => Hotkey::Joypad(JoypadKey::Right),
-            keys.joypad.a => Hotkey::Joypad(JoypadKey::A),
-            keys.joypad.b => Hotkey::Joypad(JoypadKey::B),
-            keys.joypad.start => Hotkey::Joypad(JoypadKey::Start),
-            keys.joypad.select => Hotkey::Joypad(JoypadKey::Select),
-            keys.emu.toggle_frame_limiter => Hotkey::ToggleFrameLimiter,
-            keys.emu.reset => Hotkey::Reset,
-        };
+        let mut map = HashMap::from([
+            (keys.joypad.up, Hotkey::Joypad(JoypadKey::Up)),
+            (keys.joypad.down, Hotkey::Joypad(JoypadKey::Down)),
+            (keys.joypad.left, Hotkey::Joypad(JoypadKey::Left)),
+            (keys.joypad.right, Hotkey::Joypad(JoypadKey::Right)),
+            (keys.joypad.a, Hotkey::Joypad(JoypadKey::A)),
+            (keys.joypad.b, Hotkey::Joypad(JoypadKey::B)),
+            (keys.joypad.start, Hotkey::Joypad(JoypadKey::Start)),
+            (keys.joypad.select, Hotkey::Joypad(JoypadKey::Select)),
+            (keys.emu.toggle_frame_limiter, Hotkey::ToggleFrameLimiter),
+            (keys.emu.reset, Hotkey::Reset),
+        ]);
         for state in keys.savestate {
             map.insert(state.load, Hotkey::LoadState(state.slot));
             map.insert(state.save, Hotkey::SaveState(state.slot));
