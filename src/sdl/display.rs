@@ -10,6 +10,7 @@ const FRAMERATE: f64 = 4194304.0 / 70224.0;
 
 pub struct Display<const W: usize, const H: usize> {
     limit_framerate: bool,
+    speed: f64,
     show_fps: bool,
     canvas: Canvas<Window>,
     frame_limiter: LoopHelper,
@@ -28,6 +29,7 @@ impl<const W: usize, const H: usize> Display<W, H> {
         canvas.set_logical_size(W as u32, H as u32)?;
         Ok(Display {
             limit_framerate: true,
+            speed: 1.0,
             show_fps,
             canvas,
             frame_limiter: LoopHelper::builder()
@@ -38,6 +40,12 @@ impl<const W: usize, const H: usize> Display<W, H> {
 
     pub fn toggle_frame_limiter(&mut self) {
         self.limit_framerate = !self.limit_framerate;
+    }
+
+    pub fn scale_framerate(&mut self, delta: f64) {
+        self.speed += delta;
+        println!("Speed {:.0}%", 100.0 * self.speed);
+        self.frame_limiter.set_target_rate(FRAMERATE * self.speed);
     }
 
     pub fn draw(&mut self, pixels: &[[Color; W]; H]) {

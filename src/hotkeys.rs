@@ -94,6 +94,7 @@ impl<'de> Deserialize<'de> for KeyCombo {
 }
 
 #[derive(Deserialize)]
+#[serde(default)]
 struct JoypadBindings {
     up: KeyCombo,
     down: KeyCombo,
@@ -106,8 +107,13 @@ struct JoypadBindings {
 }
 
 #[derive(Deserialize)]
+#[serde(default)]
 struct EmuBindings {
     toggle_frame_limiter: KeyCombo,
+    increase_speed_small: KeyCombo,
+    increase_speed_large: KeyCombo,
+    decrease_speed_small: KeyCombo,
+    decrease_speed_large: KeyCombo,
     reset: KeyCombo,
 }
 
@@ -119,6 +125,7 @@ struct SavestateBindings {
 }
 
 #[derive(Deserialize, Default)]
+#[serde(default)]
 /// The struct that `hotkeys.toml` gets deserialized into.
 struct Keybinds {
     joypad: JoypadBindings,
@@ -145,6 +152,10 @@ impl Default for EmuBindings {
     fn default() -> Self {
         EmuBindings {
             toggle_frame_limiter: keycombo!(Space),
+            increase_speed_small: keycombo!(Ctrl; Equals),
+            increase_speed_large: keycombo!(Ctrl-Shift; Equals),
+            decrease_speed_small: keycombo!(Ctrl; Minus),
+            decrease_speed_large: keycombo!(Ctrl-Shift; Minus),
             reset: keycombo!(Ctrl; R),
         }
     }
@@ -167,6 +178,8 @@ pub enum Hotkey {
     Joypad(JoypadKey),
     ToggleFrameLimiter,
     Reset,
+    IncreaseSpeed(f64),
+    DecreaseSpeed(f64),
     LoadState(u8),
     SaveState(u8),
 }
@@ -197,6 +210,10 @@ impl Keymap {
             (keys.joypad.start, Hotkey::Joypad(JoypadKey::Start)),
             (keys.joypad.select, Hotkey::Joypad(JoypadKey::Select)),
             (keys.emu.toggle_frame_limiter, Hotkey::ToggleFrameLimiter),
+            (keys.emu.increase_speed_small, Hotkey::IncreaseSpeed(0.1)),
+            (keys.emu.increase_speed_large, Hotkey::IncreaseSpeed(0.5)),
+            (keys.emu.decrease_speed_small, Hotkey::DecreaseSpeed(0.1)),
+            (keys.emu.decrease_speed_large, Hotkey::DecreaseSpeed(0.5)),
             (keys.emu.reset, Hotkey::Reset),
         ]);
         for state in keys.savestate {

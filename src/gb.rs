@@ -71,6 +71,16 @@ impl GameBoy {
                         self.cpu.reset(&self.config)?;
                     }
                 }
+                Hotkey::IncreaseSpeed(val) => {
+                    if pressed {
+                        self.sdl_manager.display.scale_framerate(val);
+                    }
+                }
+                Hotkey::DecreaseSpeed(val) => {
+                    if pressed {
+                        self.sdl_manager.display.scale_framerate(-val);
+                    }
+                }
                 Hotkey::LoadState(slot) => {
                     if pressed {
                         self.load_state(slot)?;

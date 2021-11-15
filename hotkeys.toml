@@ -10,6 +10,10 @@ select = "tab"
 
 [emu]
 toggle_frame_limiter = "space"
+increase_speed_small = "Ctrl+="
+decrease_speed_small = "Ctrl+-"
+increase_speed_large = "Ctrl+Shift+="
+decrease_speed_large = "Ctrl+Shift+-"
 reset = "Ctrl+r"
 
 # You can map any of slots 0-255 in the same manner as shown, just add
