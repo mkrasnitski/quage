@@ -23,7 +23,7 @@ macro_rules! keycombo {
 }
 
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum Modifier {
+enum Modifier {
     Alt,
     Ctrl,
     Shift,
@@ -45,7 +45,7 @@ impl FromStr for Modifier {
 }
 
 #[derive(Debug, Eq, PartialEq, Hash)]
-pub struct KeyCombo {
+struct KeyCombo {
     key: Keycode,
     mods: BTreeSet<Modifier>,
 }

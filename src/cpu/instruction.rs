@@ -300,9 +300,9 @@ impl OP {
 #[derive(Debug)]
 pub struct Instruction {
     pub op: OP,
-    pub len: u8,
     pub cycles: u64,
-    pub bytes: Vec<u8>,
+    len: u8,
+    bytes: Vec<u8>,
 }
 
 impl fmt::Display for Instruction {
@@ -326,6 +326,14 @@ impl fmt::Display for Instruction {
 }
 
 impl Instruction {
+    pub fn new(op: OP, cycles: u64, bytes: Vec<u8>) -> Self {
+        Instruction {
+            op,
+            cycles,
+            len: bytes.len() as u8,
+            bytes,
+        }
+    }
     pub fn byte_arg(&self) -> u8 {
         self.bytes[self.bytes.len() - 1]
     }

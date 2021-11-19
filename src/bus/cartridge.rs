@@ -7,7 +7,7 @@ use std::path::Path;
 use super::rtc::RTC;
 
 #[derive(Serialize, Deserialize)]
-pub enum MapperType {
+enum MapperType {
     ROM,
     MBC1,
     MBC1Ram,

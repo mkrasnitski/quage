@@ -151,12 +151,7 @@ impl CPU {
         for _ in bytes.len()..len as usize {
             bytes.push(self.consume_byte());
         }
-        Ok(Instruction {
-            op,
-            len,
-            cycles,
-            bytes,
-        })
+        Ok(Instruction::new(op, cycles, bytes))
     }
 
     fn consume_byte(&mut self) -> u8 {

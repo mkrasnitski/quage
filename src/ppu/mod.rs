@@ -89,14 +89,22 @@ enum PPUMode {
     Drawing = 3,
 }
 
+struct Viewport<const W: usize, const H: usize>(Box<[[Color; W]; H]>);
+
+impl<const W: usize, const H: usize> Default for Viewport<W, H> {
+    fn default() -> Self {
+        Viewport(Box::new([[Color::WHITE; W]; H]))
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct PPU {
     #[serde(with = "BigArray")]
-    pub memory: [u8; 0x2000],
+    memory: [u8; 0x2000],
     #[serde(with = "BigArray")]
-    pub oam: [u8; 0xA0],
-    #[serde(skip, default = "PPU::new_viewport")]
-    pub viewport: Box<[[Color; W_WIDTH]; W_HEIGHT]>,
+    oam: [u8; 0xA0],
+    #[serde(skip, default)]
+    viewport: Viewport<160, 144>,
     registers: PPURegisters,
     interrupts: PPUInterrupts,
     oam_sprites: Vec<Sprite>,
@@ -120,7 +128,7 @@ impl PPU {
             oam: [0; 0xA0],
             registers: PPURegisters::new(),
             interrupts: PPUInterrupts::default(),
-            viewport: PPU::new_viewport(),
+            viewport: Viewport::default(),
             oam_sprites: Vec::new(),
             oam_index: 0,
 
@@ -136,17 +144,13 @@ impl PPU {
         }
     }
 
-    fn new_viewport<const W: usize, const H: usize>() -> Box<[[Color; W]; H]> {
-        Box::new([[Color::WHITE; W]; H])
-    }
-
     // fn memory_lock(&self, addr: u16) -> bool {
     //     if !self.registers.LCDC.bit(7) {
     //         false
     //     } else if (0x8000..=0x9FFF).contains(&addr) {
-    //         self.mode == PPUMode::Drawing
+    //         matches!(self.mode, PPUMode::Drawing)
     //     } else if (0xFE00..=0xFE9F).contains(&addr) {
-    //         self.mode == PPUMode::OAMScan || self.mode == PPUMode::Drawing
+    //         matches!(self.mode, PPUMode::OAMScan | PPUMode::Drawing)
     //     } else {
     //         false
     //     }
@@ -243,7 +247,7 @@ impl PPU {
 
     pub fn paint_display(&mut self, sdl_manager: &mut SDLManager) {
         self.draw_frame = false;
-        sdl_manager.display.draw(&self.viewport);
+        sdl_manager.display.draw(self.viewport.0.as_ref());
         if let Some(tile_display) = sdl_manager.tile_display.as_mut() {
             tile_display.draw(&self.dump_tiles());
         }
@@ -303,7 +307,7 @@ impl PPU {
     }
 
     fn draw_line(&mut self) {
-        let mut scanline = [Pixel::default(); W_WIDTH];
+        let mut scanline = [Pixel::default(); 160];
         if self.registers.LCDC.bit(7) {
             if self.registers.LCDC.bit(0) {
                 // Background
@@ -318,7 +322,7 @@ impl PPU {
                     let bg_tile_row = self.decode_tile_row(bg_tile_num, bg_y % 8, false);
                     for j in 0u8..8 {
                         let bg_x = (8 * i + j).wrapping_sub(self.registers.SCX) as usize;
-                        if bg_x < W_WIDTH {
+                        if bg_x < scanline.len() {
                             scanline[bg_x] = Pixel {
                                 color: bg_tile_row[j as usize],
                                 palette: self.registers.BGP,
@@ -342,7 +346,7 @@ impl PPU {
                             self.decode_tile_row(win_tile_num, self.registers.WC % 8, false);
                         for j in 0..8 {
                             let win_x = 8 * i as usize + j + self.registers.WX as usize - 7;
-                            if (0..W_WIDTH).contains(&win_x) {
+                            if (0..scanline.len()).contains(&win_x) {
                                 window_visible = true;
                                 scanline[win_x] = Pixel {
                                     color: win_tile_row[j as usize],
@@ -379,7 +383,7 @@ impl PPU {
                         let col_num = if sprite.x_flip { 7 - i } else { i };
                         let color = sprite_tile_row[col_num];
                         let sprite_x = (sprite.x as usize + i).wrapping_sub(8);
-                        if (0..W_WIDTH).contains(&sprite_x)
+                        if (0..scanline.len()).contains(&sprite_x)
                             && color != 0
                             && (!sprite.priority || scanline[sprite_x].color == 0)
                         {
@@ -389,7 +393,7 @@ impl PPU {
                 }
             }
         }
-        self.viewport[self.registers.LY as usize] = scanline.map(|p| p.decode());
+        self.viewport.0[self.registers.LY as usize] = scanline.map(|p| p.decode());
     }
 
     fn set_mode(&mut self, mode: PPUMode) {

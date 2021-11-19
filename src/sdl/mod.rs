@@ -8,9 +8,6 @@ use crate::config::Config;
 use crate::hotkeys::{Hotkey, Keymap};
 use display::Display;
 
-pub const W_WIDTH: usize = 160;
-pub const W_HEIGHT: usize = 144;
-
 pub enum Event {
     Hotkey((Hotkey, bool)),
     Quit,
@@ -18,7 +15,7 @@ pub enum Event {
 }
 
 pub struct SDLManager {
-    pub display: Display<W_WIDTH, W_HEIGHT>,
+    pub display: Display<160, 144>,
     pub tile_display: Option<Display<128, 192>>,
     event_pump: sdl2::EventPump,
     hotkey_map: Keymap,

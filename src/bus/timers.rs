@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Default, Serialize, Deserialize)]
 pub struct Timers {
     pub DIV: u16,
-    pub TIMA: u8,
-    pub TMA: u8,
-    pub TAC: u8,
+    TIMA: u8,
+    TMA: u8,
+    TAC: u8,
     and_result: bool,
     queue_overflow: bool,
     overflow_write: bool,
