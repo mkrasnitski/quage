@@ -71,7 +71,7 @@ impl<const W: usize, const H: usize> Display<W, H> {
         self.canvas.present();
         if let Some(fps) = self.frame_limiter.report_rate() {
             if self.show_fps {
-                println!("{:.4}", fps);
+                println!("{fps:.4}");
             }
         }
         if self.limit_framerate {

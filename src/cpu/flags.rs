@@ -28,14 +28,11 @@ impl From<u8> for Flags {
 
 impl std::fmt::Display for Flags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}{}{}{}",
-            if self.z { "Z" } else { "-" },
-            if self.n { "N" } else { "-" },
-            if self.h { "H" } else { "-" },
-            if self.c { "C" } else { "-" },
-        )
+        let z = if self.z { "Z" } else { "-" };
+        let n = if self.n { "N" } else { "-" };
+        let h = if self.h { "H" } else { "-" };
+        let c = if self.c { "C" } else { "-" };
+        write!(f, "{z}{n}{h}{c}")
     }
 }
 

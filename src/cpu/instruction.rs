@@ -311,13 +311,12 @@ impl fmt::Display for Instruction {
         let bytes = self
             .bytes
             .iter()
-            .map(|b| format!("{:02x}", b))
+            .map(|b| format!("{b:02x}"))
             .collect::<Vec<String>>()
             .join(" ");
         write!(
             f,
-            "{: >8} -> {:<14} [{}, {: >2}]",
-            bytes,
+            "{bytes: >8} -> {:<14} [{}, {: >2}]",
             self.op.to_instr_string(&self.bytes),
             self.len,
             self.cycles

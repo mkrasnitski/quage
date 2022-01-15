@@ -121,13 +121,13 @@ impl CPU {
         if self.registers.halted {
             self.tick_mclock();
         } else {
-            let state = self.debug.then(|| format!("{:?}", self));
+            let state = self.debug.then(|| format!("{self:?}"));
             let start_cycle = self.cycles;
             let mut instr = self.parse_next_instruction()?;
             self.execute(&mut instr);
             assert!(self.cycles == start_cycle + instr.cycles, "{}", instr);
             if let Some(s) = state {
-                println!("{} {}", s, instr);
+                println!("{s} {instr}");
             }
         }
         Ok(())

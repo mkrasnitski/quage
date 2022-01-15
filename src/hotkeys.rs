@@ -39,7 +39,7 @@ impl FromStr for Modifier {
             "Ctrl" => Ok(Modifier::Ctrl),
             "Shift" => Ok(Modifier::Shift),
             "Super" => Ok(Modifier::Super),
-            _ => Err(format!("invalid modifier: \"{}\"", s)),
+            _ => Err(format!("invalid modifier: \"{s}\"")),
         }
     }
 }
@@ -71,7 +71,7 @@ impl KeyCombo {
 impl FromStr for KeyCombo {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err = || format!("invalid keycode: \"{}\"", s);
+        let err = || format!("invalid keycode: \"{s}\"");
         let mut strs = s.split('+').collect::<Vec<_>>();
         let keycode_str = strs.pop().ok_or_else(err)?;
         let keycode = Keycode::from_name(keycode_str).ok_or_else(err)?;

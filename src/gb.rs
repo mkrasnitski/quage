@@ -103,15 +103,15 @@ impl GameBoy {
 
     fn load_state(&mut self, slot: u8) -> Result<()> {
         let mut path = self.savestates_path.clone();
-        path.push(format!("{}.state", slot));
+        path.push(format!("{slot}.state"));
         if let Ok(file) = File::open(path) {
             let mut decoder = Decoder::new(file)?;
             let mut data = Vec::new();
             decoder.read_to_end(&mut data)?;
             self.cpu = bincode::deserialize(&data)?;
-            println!("Loaded slot {}", slot);
+            println!("Loaded slot {slot}");
         } else {
-            println!("Slot {} is empty", slot);
+            println!("Slot {slot} is empty");
         }
         Ok(())
     }
@@ -119,11 +119,11 @@ impl GameBoy {
     fn save_state(&mut self, slot: u8) -> Result<()> {
         let mut path = self.savestates_path.clone();
         fs::create_dir_all(&path)?;
-        path.push(format!("{}.state", slot));
+        path.push(format!("{slot}.state"));
         let mut encoder = Encoder::new(File::create(path)?, 0)?;
         encoder.write_all(&bincode::serialize(&self.cpu)?)?;
         encoder.finish()?;
-        println!("Saved slot {}", slot);
+        println!("Saved slot {slot}");
         Ok(())
     }
 }
